@@ -1,15 +1,13 @@
-version: "3.7"
-
 services:
   n8n:
-    build: .
     ports: 
-      - "5678:5678"
+    - "5678:5678"
+    # überschreibt/ergänzt nur Werte der Base
     environment:
       N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL}
       WEBHOOK_URL: ${WEBHOOK_URL}
 
-      # Postgres Konfiguration
+      # auf Postgres umstellen (falls nicht schon in Base)
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: "5432"
@@ -17,13 +15,10 @@ services:
       DB_POSTGRESDB_USER: n8n
       DB_POSTGRESDB_PASSWORD: change_me
       # DB_POSTGRESDB_SCHEMA: n8n
-
     depends_on:
       - postgres
-    volumes:
-      - ./n8n_data:/home/node/.n8n
-    restart: unless-stopped
 
+  # Nur hinzufügen, wenn in der Base KEIN postgres-Service existiert:
   postgres:
     image: postgres:15-alpine
     restart: unless-stopped

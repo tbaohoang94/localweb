@@ -5,6 +5,10 @@ up:
 down:
 	docker compose -f docker/docker-compose.yml down
 
+down-v:
+	docker compose -f docker/docker-compose.yml down -v
+
+
 # Prod-Kommandos
 prod-up:
 	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
