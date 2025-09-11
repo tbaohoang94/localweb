@@ -17,6 +17,6 @@ echo "🌿 Setze Branch main..."
 git branch -M main
 
 echo "🔗 Verbinde mit Remote: $REPO_URL"
-git remote add origin "$REPO_URL"
+git remote set-url origin "$REPO_URL"
 
 echo "✅ Setup abgeschlossen. Du kannst jetzt mit ./push_github.sh pushen."

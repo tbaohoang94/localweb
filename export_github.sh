@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-# Basis-Ordner ermitteln
+# Basis-Ordner ermitteln (hier: localweb)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$SCRIPT_DIR/../files"
-DOCKER_DIR="$SCRIPT_DIR/../docker"
+BASE_DIR="$SCRIPT_DIR/files"
+DOCKER_DIR="$SCRIPT_DIR/infra/docker"   # compose liegt in infra/docker
 
 WORKFLOW_DIR="$BASE_DIR/workflows"
 CREDENTIAL_DIR="$BASE_DIR/credentials"

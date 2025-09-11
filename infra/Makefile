@@ -1,14 +1,3 @@
-# Basis-Kommandos
-up:
-	docker compose -f docker/docker-compose.yml up -d
-
-down:
-	docker compose -f docker/docker-compose.yml down
-
-down-v:
-	docker compose -f docker/docker-compose.yml down -v
-
-
 # Prod-Kommandos
 prod-up:
 	docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
@@ -21,10 +10,10 @@ prod-down-v:
 
 # Local-Kommandos (z. B. mit Cloudflare Tunnel)
 up-local:
-	docker compose -f docker/docker-compose.yml -f docker/docker-compose.local.yml up -d
+	docker/docker-compose.local.yml up -d
 
 down-local:
-	docker compose -f docker/docker-compose.yml -f docker/docker-compose.local.yml down
+	docker/docker-compose.local.yml down
 
 # Logs
 logs:
