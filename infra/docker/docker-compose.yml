@@ -12,7 +12,9 @@ services:
       - "5432:5432"
 
   n8n:
-    image: n8nio/n8n:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.n8n-puppeteer
     restart: unless-stopped
     depends_on:
       - postgres
@@ -26,23 +28,37 @@ services:
 
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: ${N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS}
+      N8N_COMMUNITY_PACKAGES: "@apify/n8n-nodes-apify"
 
-      # Nur lokal → kein Hostname/HTTPS/Webhook nötig
+      # Lokal erreichbar
       N8N_HOST: localhost
       N8N_PROTOCOL: http
-      WEBHOOK_URL: http://localhost:5678/
+      WEBHOOK_URL: https://n8n.hoba-consulting.com
 
-      # Code-Node: externe Module erlauben
-      NODE_FUNCTION_ALLOW_EXTERNAL: cheerio
+      # Code-Node: externe Module
+      NODE_FUNCTION_ALLOW_EXTERNAL: apify-client,cheerio,puppeteer,puppeteer-core
+
+      # Puppeteer verwendet system chromium
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+      PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium"
+
     ports:
       - "5678:5678"
     volumes:
-       - ../../files:/files
+      - ../../files:/files
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
       interval: 30s
       timeout: 10s
       retries: 5
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: always
+    depends_on:
+      - n8n
+    command: tunnel --no-autoupdate --protocol http2 run --token ${CLOUDFLARE_TUNNEL_TOKEN}
 
 volumes:
   pgdata:

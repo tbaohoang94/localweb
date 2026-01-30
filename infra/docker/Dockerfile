@@ -5,4 +5,4 @@ FROM n8nio/n8n
 WORKDIR /data
 
 # Beliebige npm-Pakete installieren (hier cheerio)
-RUN npm install cheerio
+RUN npm install -g cheerio

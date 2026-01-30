@@ -1,5 +1,6 @@
 # Lokale und Prod Secrets
 infra/docker/.env
+.mcp.json
 
 # Docker Volumes / Daten
 **/n8n_data/
