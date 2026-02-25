@@ -1,18 +1,34 @@
-# Lokale und Prod Secrets
+# Secrets & env
+.env
+.env.local
+.env*.local
 infra/docker/.env
+documents/n8n/docker/.env
 .mcp.json
+.agents/mcp/.mcp.json
 
-# Docker Volumes / Daten
+# Next.js
+.next/
+out/
+
+# Dependencies
+node_modules/
+
+# Docker Volumes
 **/n8n_data/
 **/pg_data/
 **/redis_data/
 **/caddy_data/
 **/caddy_config/
 
-# Backups
+# Backups & logs
 **/backups/
-node_modules/
-.env
 *.log
-venv/
+
+# OS
 .DS_Store
+venv/
+
+# Claude Code (session data, not config)
+.claude/projects/
+skills-lock.json
