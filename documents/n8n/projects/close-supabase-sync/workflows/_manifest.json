@@ -1,0 +1,250 @@
+{
+  "project": "close-supabase-sync",
+  "workflows": {
+    "orchestrator": {
+      "id": "dyTx5AbwsNO5WGaL",
+      "name": "01-orchestrator",
+      "file": "01-orchestrator.json",
+      "status": "inactive",
+      "triggers": ["manual"],
+      "calls": ["add-new-user", "get-custom-activities", "get-opportunities"]
+    },
+    "add-new-user": {
+      "id": "yg2xtQQAUaiLkLXi",
+      "name": "02-add-new-user",
+      "file": "02-add-new-user.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "get-custom-activities": {
+      "id": "NAo1zIkjNwYMbHmv",
+      "name": "03-get-custom-activities",
+      "file": "03-get-custom-activities.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "get-opportunities": {
+      "id": "cQDTdw5U0TRY28Nl",
+      "name": "04-get-opportunitys",
+      "file": "04-get-opportunitys.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "get-settingcalls": {
+      "id": "RIziEv7wAifHBU47",
+      "name": "05-get-settingcalls",
+      "file": "05-get-settingcalls.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "get-closingcalls": {
+      "id": "LxpJz2z2pBYBhBhy",
+      "name": "06-get-closingcalls",
+      "file": "06-get-closingcalls.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "error-logger": {
+      "id": "OrTCUp8ufHjtmIcm",
+      "name": "08-error-logger",
+      "file": "08-error-logger.json",
+      "status": "inactive",
+      "triggers": ["error"],
+      "calls": []
+    },
+    "full-sync": {
+      "id": "1M30qQhxTkyqTd8g",
+      "name": "00-full-sync",
+      "file": "00-full-sync.json",
+      "status": "inactive",
+      "triggers": ["manual"],
+      "calls": ["sync-users", "sync-leads", "sync-activity-types", "sync-custom-fields", "sync-opportunities", "sync-calls", "sync-meetings", "sync-custom-activities", "sync-demodesk-transcripts"]
+    },
+    "sync-users": {
+      "id": "XuPdrCJXWzWb5LOZ",
+      "name": "01-sync-users",
+      "file": "01-sync-users.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-leads": {
+      "id": "LuuTFS5EC1mOcdb1",
+      "name": "02-sync-leads",
+      "file": "02-sync-leads.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-activity-types": {
+      "id": "W549YA04HFFti2Wa",
+      "name": "03-sync-activity-types",
+      "file": "03-sync-activity-types.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-opportunities": {
+      "id": "gxncNWabbKl12Yyu",
+      "name": "04-sync-opportunities",
+      "file": "04-sync-opportunities.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-calls": {
+      "id": "yTKEleR62nPoSjDU",
+      "name": "05-sync-calls",
+      "file": "05-sync-calls.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-meetings": {
+      "id": "IlARmuyC2IJ1ciLd",
+      "name": "06-sync-meetings",
+      "file": "06-sync-meetings.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-custom-activities": {
+      "id": "6hVvL0XTQr4kMEQX",
+      "name": "07-sync-custom-activities",
+      "file": "07-sync-custom-activities.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-custom-fields": {
+      "id": "Qs3XRfwzLEHsft25",
+      "name": "09-sync-custom-fields",
+      "file": "09-sync-custom-fields.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-demodesk-transcripts": {
+      "id": "1mtLiN4tCIM54t84",
+      "name": "10-sync-demodesk-transcripts",
+      "file": "10-sync-demodesk-transcripts.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "classify-and-transcribe": {
+      "id": "lVffwYj5EbYaERep",
+      "name": "11-classify-and-transcribe",
+      "file": "11-classify-and-transcribe.json",
+      "status": "inactive",
+      "triggers": ["webhook"],
+      "calls": []
+    },
+    "first-import-resume": {
+      "id": "Kna9hsuBbSjWt8Fk",
+      "name": "00-first-import-resume",
+      "file": "00-first-import-resume.json",
+      "status": "inactive",
+      "triggers": ["manual"],
+      "calls": ["sync-calls", "sync-meetings", "sync-custom-activities", "sync-demodesk-transcripts"]
+    },
+    "webhook-dispatcher": {
+      "name": "20-webhook-dispatcher",
+      "file": "20-webhook-dispatcher.json",
+      "status": "inactive",
+      "triggers": ["webhook"],
+      "calls": ["eg-vereinbart", "eg-noshow", "eg-stattgefunden", "sg-stattgefunden", "sg-noshow", "angebot-erstellen", "kunde-gewonnen", "kunde-verloren"]
+    },
+    "eg-vereinbart": {
+      "name": "21-eg-vereinbart",
+      "file": "21-eg-vereinbart.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "eg-noshow": {
+      "name": "22-eg-noshow",
+      "file": "22-eg-noshow.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "eg-stattgefunden": {
+      "name": "23-eg-stattgefunden",
+      "file": "23-eg-stattgefunden.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sg-stattgefunden": {
+      "name": "24-sg-stattgefunden",
+      "file": "24-sg-stattgefunden.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sg-noshow": {
+      "name": "25-sg-noshow",
+      "file": "25-sg-noshow.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "angebot-erstellen": {
+      "name": "26-angebot-erstellen",
+      "file": "26-angebot-erstellen.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "kunde-gewonnen": {
+      "name": "27-kunde-gewonnen",
+      "file": "27-kunde-gewonnen.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "kunde-verloren": {
+      "name": "28-kunde-verloren",
+      "file": "28-kunde-verloren.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    }
+  },
+  "dependencies": {
+    "orchestrator": ["add-new-user", "get-custom-activities", "get-opportunities"],
+    "full-sync": ["sync-users", "sync-leads", "sync-activity-types", "sync-custom-fields", "sync-opportunities", "sync-calls", "sync-meetings", "sync-custom-activities", "sync-demodesk-transcripts"],
+    "add-new-user": [],
+    "get-custom-activities": [],
+    "get-opportunities": [],
+    "get-settingcalls": [],
+    "get-closingcalls": [],
+    "sync-users": [],
+    "sync-leads": [],
+    "sync-activity-types": [],
+    "sync-opportunities": [],
+    "sync-calls": [],
+    "sync-meetings": [],
+    "sync-custom-activities": [],
+    "sync-custom-fields": [],
+    "error-logger": [],
+    "sync-demodesk-transcripts": [],
+    "classify-and-transcribe": [],
+    "first-import-resume": ["sync-calls", "sync-meetings", "sync-custom-activities", "sync-demodesk-transcripts"],
+    "webhook-dispatcher": ["eg-vereinbart", "eg-noshow", "eg-stattgefunden", "sg-stattgefunden", "sg-noshow", "angebot-erstellen", "kunde-gewonnen", "kunde-verloren"],
+    "eg-vereinbart": [],
+    "eg-noshow": [],
+    "eg-stattgefunden": [],
+    "sg-stattgefunden": [],
+    "sg-noshow": [],
+    "angebot-erstellen": [],
+    "kunde-gewonnen": [],
+    "kunde-verloren": []
+  }
+}

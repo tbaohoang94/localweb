@@ -1,0 +1,147 @@
+{
+  "name": "24-sg-stattgefunden",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-24",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.close.com/api/v1/opportunity/?lead_id={{ $json.leadId }}&status_type=active&_limit=1&_order_by=-date_created",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-opp-24",
+      "name": "GET Active Opportunity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Execute Workflow Trigger').first().json;\nconst oppResponse = $('GET Active Opportunity').first().json;\nconst opportunities = oppResponse.data || [];\n\nif (opportunities.length === 0) {\n  return [{ json: { _skip: true, _reason: 'No active opportunity found for lead ' + input.leadId } }];\n}\n\nconst opp = opportunities[0];\nconst ergebnis = (input.customFields || {})['custom.cf_HCpCPtrExVmNACqjhFkjZ9fMHQimVgodE22DYt50ycf'] || '';\n\nconst STATUS_MAP = {\n  '1 - Kunde': 'stat_FCEzWzOeUGxQDxBECumKi1o5M0F1xIlOaFn13wvuJeh',\n  '2 - Folgetermin': 'stat_FCEzWzOeUGxQDxBECumKi1o5M0F1xIlOaFn13wvuJeh',\n  '3 - Follow-up': 'stat_FCEzWzOeUGxQDxBECumKi1o5M0F1xIlOaFn13wvuJeh',\n  '4 - Verloren': 'stat_2NjdTtgLsl931S2nrmOLTK7IWW7KV0JVsiTwS7zexT4',\n  '5 - Unqualifiziert': 'stat_0o8JNmzSa6GiQH5yEZ424xT9B08NGTia4U3VxxzssMB'\n};\n\nconst statusId = STATUS_MAP[ergebnis];\n\nif (!statusId) {\n  return [{ json: { _skip: true, _reason: 'Ergebnis maps to no status: ' + ergebnis } }];\n}\n\nreturn [{ json: { _skip: false, oppId: opp.id, statusId, ergebnis, leadId: input.leadId } }];"
+      },
+      "id": "resolve-24",
+      "name": "Resolve Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "skip-check-24",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "if-24",
+      "name": "Should Update?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/opportunity/{{ $json.oppId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status_id: $json.statusId, confidence: 33 }) }}",
+        "options": {}
+      },
+      "id": "put-opp-24",
+      "name": "Update Opportunity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_24_sg_stattgefunden', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to update opportunity').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-log-24",
+      "name": "Log Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 350],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "GET Active Opportunity", "type": "main", "index": 0 }]]
+    },
+    "GET Active Opportunity": {
+      "main": [[{ "node": "Resolve Ergebnis", "type": "main", "index": 0 }]]
+    },
+    "Resolve Ergebnis": {
+      "main": [[{ "node": "Should Update?", "type": "main", "index": 0 }]]
+    },
+    "Should Update?": {
+      "main": [
+        [{ "node": "Update Opportunity", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Update Opportunity": {
+      "main": [
+        [],
+        [{ "node": "Log Error to Supabase", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

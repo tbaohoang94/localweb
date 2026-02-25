@@ -1,0 +1,234 @@
+{
+  "id": "59tTad4B9Ryv2O67",
+  "name": "02-import-apify-results",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $json.apify_run_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "id": "check-apify",
+      "name": "Check Apify Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [896, -208],
+      "credentials": {
+        "httpBearerAuth": { "id": "H7EaKB5yYzqhBgZ8", "name": "Apify" }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "conditions": [{ "leftValue": "={{ $json.data.status }}", "rightValue": "SUCCEEDED", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "conditions": [{ "leftValue": "={{ $json.data.status }}", "rightValue": "FAILED", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "conditions": [{ "leftValue": "={{ $json.data.status }}", "rightValue": "ABORTED", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                "conditions": [{ "leftValue": "={{ $json.data.status }}", "rightValue": "TIMED-OUT", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-status",
+      "name": "Run Status?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1120, -240]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/datasets/{{ $json.data.defaultDatasetId }}/items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "id": "get-dataset",
+      "name": "Get Dataset Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1344, -304],
+      "credentials": {
+        "httpBearerAuth": { "id": "H7EaKB5yYzqhBgZ8", "name": "Apify" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?apify_run_id=eq.{{ $('Execute Workflow Trigger').first().json.apify_run_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"scrape_status\": \"finished\",\n  \"scrape_finished_at\": {{ JSON.stringify($now.toISO()) }},\n  \"scrape_total_results\": {{ $('Normalize Data').first().json._totalCount || 0 }}\n}",
+        "options": {}
+      },
+      "id": "update-finished",
+      "name": "Mark Run Finished",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2464, -304],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?apify_run_id=eq.{{ $('Execute Workflow Trigger').first().json.apify_run_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"scrape_status\": \"failed\",\n  \"scrape_finished_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "mark-failed",
+      "name": "Mark Run Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1344, -112]
+    },
+    {
+      "parameters": { "inputSource": "passthrough" },
+      "id": "wf-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [672, -112]
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeWebsite(url) {\n  if (!url) return null;\n  const cleaned = String(url).trim();\n  if (!cleaned) return null;\n  const match = cleaned.match(/^(https?:\\/\\/[^\\/?#]+)/);\n  if (match) return match[1];\n  const withProtocol = 'https://' + cleaned;\n  const match2 = withProtocol.match(/^(https?:\\/\\/[^\\/?#]+)/);\n  return match2 ? match2[1] : null;\n}\n\nconst items = $input.all();\nconst filtered = items.filter(item => item.json.placeId && !item.json.permanentlyClosed);\n\n// Deduplicate by placeId (keep last occurrence = highest rank)\nconst deduped = new Map();\nfor (const item of filtered) {\n  deduped.set(item.json.placeId, item);\n}\nconst unique = Array.from(deduped.values());\nconst totalCount = unique.length;\n\nreturn unique.map(item => {\n  const d = item.json;\n  return {\n    json: {\n      _totalCount: totalCount,\n      placeId: d.placeId,\n      title: d.title || null,\n      categoryName: d.categoryName || null,\n      address: d.address || null,\n      city: d.city || null,\n      postalCode: d.postalCode || null,\n      countryCode: d.countryCode || null,\n      phone: d.phone || null,\n      website: normalizeWebsite(d.website),\n      totalScore: d.totalScore || null,\n      reviewsCount: d.reviewsCount || null,\n      location: {\n        lat: d.location && d.location.lat ? d.location.lat : null,\n        lng: d.location && d.location.lng ? d.location.lng : null\n      },\n      permanentlyClosed: d.permanentlyClosed || false,\n      phoneUnformatted: d.phoneUnformatted || null,\n      fid: d.fid || null,\n      cid: d.cid || null,\n      searchString: d.searchString || null,\n      rank: d.rank || null\n    }\n  };\n});"
+      },
+      "id": "normalize-data",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, -304]
+    },
+    {
+      "parameters": { "batchSize": 1000, "options": {} },
+      "id": "batch-items",
+      "name": "Batch Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1680, -304]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst batch = items.map(item => {\n  const d = item.json;\n  return {\n    place_id: d.placeId,\n    name: d.title,\n    category: d.categoryName,\n    address: d.address,\n    city: d.city,\n    postal_code: d.postalCode,\n    country: d.countryCode,\n    phone: d.phone,\n    website: d.website,\n    rating: d.totalScore || null,\n    reviews_count: d.reviewsCount || null,\n    latitude: d.location && d.location.lat ? d.location.lat : null,\n    longitude: d.location && d.location.lng ? d.location.lng : null,\n    permanently_closed: d.permanentlyClosed || false,\n    phone_unformatted: d.phoneUnformatted || null,\n    fid: d.fid || null,\n    cid: d.cid || null,\n    search_string: d.searchString || null,\n    rank: d.rank || null\n  };\n});\n\nreturn [{ json: { batch } }];"
+      },
+      "id": "prepare-batch",
+      "name": "Prepare Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1792, -224]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?on_conflict=place_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Prefer", "value": "return=representation,resolution=merge-duplicates" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.batch) }}",
+        "options": {}
+      },
+      "id": "upsert-business",
+      "name": "Upsert Business",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2016, -224],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "Check Apify Status": {
+      "main": [[{ "node": "Run Status?", "type": "main", "index": 0 }]]
+    },
+    "Run Status?": {
+      "main": [
+        [{ "node": "Get Dataset Items", "type": "main", "index": 0 }],
+        [{ "node": "Mark Run Failed", "type": "main", "index": 0 }],
+        [{ "node": "Mark Run Failed", "type": "main", "index": 0 }],
+        [{ "node": "Mark Run Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Check Apify Status", "type": "main", "index": 0 }]]
+    },
+    "Get Dataset Items": {
+      "main": [[{ "node": "Normalize Data", "type": "main", "index": 0 }]]
+    },
+    "Normalize Data": {
+      "main": [[{ "node": "Batch Items", "type": "main", "index": 0 }]]
+    },
+    "Batch Items": {
+      "main": [
+        [{ "node": "Mark Run Finished", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Batch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Batch": {
+      "main": [[{ "node": "Upsert Business", "type": "main", "index": 0 }]]
+    },
+    "Upsert Business": {
+      "main": [[{ "node": "Batch Items", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "5Twy03WAFur7CZcD"
+  }
+}

@@ -1,0 +1,369 @@
+/Users/apple/Documents/localweb
+|-- .agents
+|   `-- skills
+|       `-- supabase-postgres-best-practices
+|           |-- references
+|           |   |-- advanced-full-text-search.md
+|           |   |-- advanced-jsonb-indexing.md
+|           |   |-- conn-idle-timeout.md
+|           |   |-- conn-limits.md
+|           |   |-- conn-pooling.md
+|           |   |-- conn-prepared-statements.md
+|           |   |-- data-batch-inserts.md
+|           |   |-- data-n-plus-one.md
+|           |   |-- data-pagination.md
+|           |   |-- data-upsert.md
+|           |   |-- lock-advisory.md
+|           |   |-- lock-deadlock-prevention.md
+|           |   |-- lock-short-transactions.md
+|           |   |-- lock-skip-locked.md
+|           |   |-- monitor-explain-analyze.md
+|           |   |-- monitor-pg-stat-statements.md
+|           |   |-- monitor-vacuum-analyze.md
+|           |   |-- query-composite-indexes.md
+|           |   |-- query-covering-indexes.md
+|           |   |-- query-index-types.md
+|           |   |-- query-missing-indexes.md
+|           |   |-- query-partial-indexes.md
+|           |   |-- schema-constraints.md
+|           |   |-- schema-data-types.md
+|           |   |-- schema-foreign-key-indexes.md
+|           |   |-- schema-lowercase-identifiers.md
+|           |   |-- schema-partitioning.md
+|           |   |-- schema-primary-keys.md
+|           |   |-- security-privileges.md
+|           |   |-- security-rls-basics.md
+|           |   `-- security-rls-performance.md
+|           |-- AGENTS.md
+|           |-- CLAUDE.md
+|           `-- SKILL.md
+|-- .claude
+|   |-- skills
+|   |   `-- supabase-postgres-best-practices -> ../../.agents/skills/supabase-postgres-best-practices
+|   |-- claude.md
+|   |-- context.md
+|   `-- settings.local.json
+|-- crm-frontend
+|   |-- app
+|   |   |-- dashboard
+|   |   |   |-- activities
+|   |   |   |   `-- page.tsx
+|   |   |   |-- leads
+|   |   |   |   |-- [id]
+|   |   |   |   |   `-- page.tsx
+|   |   |   |   `-- page.tsx
+|   |   |   |-- opportunities
+|   |   |   |   |-- [id]
+|   |   |   |   |   `-- page.tsx
+|   |   |   |   `-- page.tsx
+|   |   |   |-- transcripts
+|   |   |   |   `-- page.tsx
+|   |   |   |-- layout.tsx
+|   |   |   `-- page.tsx
+|   |   |-- login
+|   |   |   `-- page.tsx
+|   |   |-- signup
+|   |   |-- globals.css
+|   |   |-- layout.tsx
+|   |   `-- page.tsx
+|   |-- components
+|   |   |-- activities
+|   |   |   `-- activity-timeline.tsx
+|   |   |-- dashboard
+|   |   |   |-- kpi-card.tsx
+|   |   |   `-- recent-activity.tsx
+|   |   |-- leads
+|   |   |   |-- lead-detail.tsx
+|   |   |   `-- leads-table.tsx
+|   |   |-- opportunities
+|   |   |   |-- opportunities-table.tsx
+|   |   |   `-- opportunity-detail.tsx
+|   |   |-- transcripts
+|   |   |   `-- transcripts-list.tsx
+|   |   |-- login-form.tsx
+|   |   `-- sidebar.tsx
+|   |-- lib
+|   |   |-- supabase-browser.ts
+|   |   `-- supabase-server.ts
+|   |-- supabase
+|   |   `-- migration.sql
+|   |-- .env.local
+|   |-- .eslintrc.json
+|   |-- .gitignore
+|   |-- middleware.ts
+|   |-- next-env.d.ts
+|   |-- next.config.mjs
+|   |-- package-lock.json
+|   |-- package.json
+|   |-- postcss.config.mjs
+|   |-- tailwind.config.ts
+|   `-- tsconfig.json
+|-- documents
+|   |-- files
+|   |-- n8n
+|   |   |-- agent
+|   |   |   |-- mcp
+|   |   |   |   |-- src
+|   |   |   |   |   |-- tools
+|   |   |   |   |   |   `-- .gitkeep
+|   |   |   |   |   |-- utils
+|   |   |   |   |   |   `-- .gitkeep
+|   |   |   |   |   `-- server.ts
+|   |   |   |   |-- tests
+|   |   |   |   |   `-- .gitkeep
+|   |   |   |   |-- README.md
+|   |   |   |   |-- config.example.json
+|   |   |   |   `-- package.json
+|   |   |   |-- skills
+|   |   |   |   `-- n8n-skills
+|   |   |   |       |-- .claude-plugin
+|   |   |   |       |   |-- marketplace.json
+|   |   |   |       |   `-- plugin.json
+|   |   |   |       |-- docs
+|   |   |   |       |   |-- CODE_NODE_BEST_PRACTICES.md
+|   |   |   |       |   |-- DEVELOPMENT.md
+|   |   |   |       |   |-- INSTALLATION.md
+|   |   |   |       |   |-- MCP_TESTING_LOG.md
+|   |   |   |       |   `-- USAGE.md
+|   |   |   |       |-- evaluations
+|   |   |   |       |   |-- code-javascript
+|   |   |   |       |   |   |-- eval-001-webhook-body-gotcha.json
+|   |   |   |       |   |   |-- eval-002-return-format-error.json
+|   |   |   |       |   |   |-- eval-003-http-request.json
+|   |   |   |       |   |   |-- eval-004-aggregation-pattern.json
+|   |   |   |       |   |   `-- eval-005-expression-syntax-confusion.json
+|   |   |   |       |   |-- code-python
+|   |   |   |       |   |   |-- eval-001-module-import-error.json
+|   |   |   |       |   |   |-- eval-002-dictionary-keyerror.json
+|   |   |   |       |   |   |-- eval-003-webhook-body-gotcha.json
+|   |   |   |       |   |   |-- eval-004-return-format-error.json
+|   |   |   |       |   |   `-- eval-005-standard-library-usage.json
+|   |   |   |       |   |-- expression-syntax
+|   |   |   |       |   |   |-- eval-001-missing-braces.json
+|   |   |   |       |   |   |-- eval-002-webhook-body-data.json
+|   |   |   |       |   |   |-- eval-003-code-node-confusion.json
+|   |   |   |       |   |   `-- eval-004-node-reference.json
+|   |   |   |       |   |-- mcp-tools
+|   |   |   |       |   |   |-- eval-001-tool-selection.json
+|   |   |   |       |   |   |-- eval-002-nodetype-format.json
+|   |   |   |       |   |   |-- eval-003-validation-workflow.json
+|   |   |   |       |   |   |-- eval-004-essentials-vs-info.json
+|   |   |   |       |   |   `-- eval-005-smart-parameters.json
+|   |   |   |       |   |-- node-configuration
+|   |   |   |       |   |   |-- eval-001-property-dependencies.json
+|   |   |   |       |   |   |-- eval-002-operation-specific-config.json
+|   |   |   |       |   |   |-- eval-003-conditional-fields.json
+|   |   |   |       |   |   `-- eval-004-essentials-vs-info.json
+|   |   |   |       |   |-- validation-expert
+|   |   |   |       |   |   |-- eval-001-missing-required-field.json
+|   |   |   |       |   |   |-- eval-002-false-positive.json
+|   |   |   |       |   |   |-- eval-003-auto-sanitization.json
+|   |   |   |       |   |   `-- eval-004-validation-loop.json
+|   |   |   |       |   `-- workflow-patterns
+|   |   |   |       |       |-- eval-001-webhook-workflow.json
+|   |   |   |       |       |-- eval-002-http-api-workflow.json
+|   |   |   |       |       |-- eval-003-database-sync.json
+|   |   |   |       |       |-- eval-004-ai-agent.json
+|   |   |   |       |       `-- eval-005-scheduled-report.json
+|   |   |   |       |-- skills
+|   |   |   |       |   |-- n8n-code-javascript
+|   |   |   |       |   |   |-- BUILTIN_FUNCTIONS.md
+|   |   |   |       |   |   |-- COMMON_PATTERNS.md
+|   |   |   |       |   |   |-- DATA_ACCESS.md
+|   |   |   |       |   |   |-- ERROR_PATTERNS.md
+|   |   |   |       |   |   |-- README.md
+|   |   |   |       |   |   `-- SKILL.md
+|   |   |   |       |   |-- n8n-code-python
+|   |   |   |       |   |   |-- COMMON_PATTERNS.md
+|   |   |   |       |   |   |-- DATA_ACCESS.md
+|   |   |   |       |   |   |-- ERROR_PATTERNS.md
+|   |   |   |       |   |   |-- README.md
+|   |   |   |       |   |   |-- SKILL.md
+|   |   |   |       |   |   `-- STANDARD_LIBRARY.md
+|   |   |   |       |   |-- n8n-expression-syntax
+|   |   |   |       |   |   |-- COMMON_MISTAKES.md
+|   |   |   |       |   |   |-- EXAMPLES.md
+|   |   |   |       |   |   |-- README.md
+|   |   |   |       |   |   `-- SKILL.md
+|   |   |   |       |   |-- n8n-mcp-tools-expert
+|   |   |   |       |   |   |-- README.md
+|   |   |   |       |   |   |-- SEARCH_GUIDE.md
+|   |   |   |       |   |   |-- SKILL.md
+|   |   |   |       |   |   |-- VALIDATION_GUIDE.md
+|   |   |   |       |   |   `-- WORKFLOW_GUIDE.md
+|   |   |   |       |   |-- n8n-node-configuration
+|   |   |   |       |   |   |-- DEPENDENCIES.md
+|   |   |   |       |   |   |-- OPERATION_PATTERNS.md
+|   |   |   |       |   |   |-- README.md
+|   |   |   |       |   |   `-- SKILL.md
+|   |   |   |       |   |-- n8n-validation-expert
+|   |   |   |       |   |   |-- ERROR_CATALOG.md
+|   |   |   |       |   |   |-- FALSE_POSITIVES.md
+|   |   |   |       |   |   |-- README.md
+|   |   |   |       |   |   `-- SKILL.md
+|   |   |   |       |   `-- n8n-workflow-patterns
+|   |   |   |       |       |-- README.md
+|   |   |   |       |       |-- SKILL.md
+|   |   |   |       |       |-- ai_agent_workflow.md
+|   |   |   |       |       |-- database_operations.md
+|   |   |   |       |       |-- http_api_integration.md
+|   |   |   |       |       |-- scheduled_tasks.md
+|   |   |   |       |       |-- webhook_processing.md
+|   |   |   |       |       |-- workflow-debugging.md
+|   |   |   |       |       |-- workflow-modification.md
+|   |   |   |       |       `-- workflow-testing.md
+|   |   |   |       |-- .gitignore
+|   |   |   |       |-- .mcp.json.example
+|   |   |   |       |-- CLAUDE.md
+|   |   |   |       |-- LICENSE
+|   |   |   |       |-- README.md
+|   |   |   |       |-- build.sh
+|   |   |   |       `-- skills.png
+|   |   |   `-- N8N_ERRORS.md
+|   |   |-- docker
+|   |   |   |-- .env
+|   |   |   |-- .env.example
+|   |   |   |-- Caddyfile
+|   |   |   |-- Dockerfile
+|   |   |   |-- docker-compose.prod.yml
+|   |   |   `-- docker-compose.yml
+|   |   |-- projects
+|   |   |   |-- _template
+|   |   |   |   |-- knowledge
+|   |   |   |   |   `-- .gitkeep
+|   |   |   |   |-- payloads
+|   |   |   |   |   `-- .gitkeep
+|   |   |   |   |-- workflows
+|   |   |   |   |   `-- .gitkeep
+|   |   |   |   `-- README.md
+|   |   |   |-- close-supabase-sync
+|   |   |   |   |-- .context
+|   |   |   |   |   |-- constraints.md
+|   |   |   |   |   |-- decisions.md
+|   |   |   |   |   `-- goals.md
+|   |   |   |   |-- knowledge
+|   |   |   |   |   |-- schemas
+|   |   |   |   |   |-- _index.md
+|   |   |   |   |   |-- api.md
+|   |   |   |   |   |-- n8n.md
+|   |   |   |   |   `-- supabase-schema.md
+|   |   |   |   |-- payloads
+|   |   |   |   |   `-- README.md
+|   |   |   |   |-- scripts
+|   |   |   |   |   |-- debug.sh
+|   |   |   |   |   |-- export.sh
+|   |   |   |   |   |-- import.sh
+|   |   |   |   |   `-- setup.sh
+|   |   |   |   |-- workflows
+|   |   |   |   |   |-- 00-first-import-resume.json
+|   |   |   |   |   |-- 00-full-sync.json
+|   |   |   |   |   |-- 01-orchestrator.json
+|   |   |   |   |   |-- 01-sync-users.json
+|   |   |   |   |   |-- 02-add-new-user.json
+|   |   |   |   |   |-- 02-sync-leads.json
+|   |   |   |   |   |-- 03-get-custom-activities.json
+|   |   |   |   |   |-- 03-sync-activity-types.json
+|   |   |   |   |   |-- 04-get-opportunitys.json
+|   |   |   |   |   |-- 04-sync-opportunities.json
+|   |   |   |   |   |-- 05-get-settingcalls.json
+|   |   |   |   |   |-- 05-sync-calls.json
+|   |   |   |   |   |-- 06-get-closingcalls.json
+|   |   |   |   |   |-- 06-sync-meetings.json
+|   |   |   |   |   |-- 07-sync-activity-types.json
+|   |   |   |   |   |-- 07-sync-custom-activities.json
+|   |   |   |   |   |-- 08-error-logger.json
+|   |   |   |   |   |-- 09-sync-custom-fields.json
+|   |   |   |   |   |-- 10-sync-demodesk-transcripts.json
+|   |   |   |   |   |-- 11-classify-and-transcribe.json
+|   |   |   |   |   |-- 98-test-close-leads.json
+|   |   |   |   |   |-- 99-test-sync.json
+|   |   |   |   |   |-- _manifest.json
+|   |   |   |   |   |-- error-logger.json
+|   |   |   |   |   `-- sync-activity-types-supabase.json
+|   |   |   |   |-- CHANGELOG.md
+|   |   |   |   `-- README.md
+|   |   |   `-- google-maps-lead-pipeline
+|   |   |       |-- .context
+|   |   |       |   |-- constraints.md
+|   |   |       |   |-- decisions.md
+|   |   |       |   `-- goals.md
+|   |   |       |-- knowledge
+|   |   |       |   |-- pipeline-overview.md
+|   |   |       |   |-- session-learnings.md
+|   |   |       |   `-- supabase-schema.sql
+|   |   |       |-- workflows
+|   |   |       |   |-- 00-orchestrator.json
+|   |   |       |   |-- 01-start-apify-scrape.json
+|   |   |       |   |-- 01b-check-running-scrapes.json
+|   |   |       |   |-- 02-import-apify-results.json
+|   |   |       |   |-- 03-backfill-apify-results.json
+|   |   |       |   |-- 03-category-qualification.json
+|   |   |       |   |-- 04-enrich-website-contacts-clean.json
+|   |   |       |   |-- 04a-enrich-dispatcher.json
+|   |   |       |   |-- 04b-enrich-worker.json
+|   |   |       |   |-- 05-csv-export-email.json
+|   |   |       |   |-- 05-qualify-leads.json
+|   |   |       |   |-- 06-export-to-close.json
+|   |   |       |   `-- 07-error-logger.json
+|   |   |       `-- README.md
+|   |   |-- runtime
+|   |   |   `-- .gitkeep
+|   |   |-- .gitignore
+|   |   |-- Makefile
+|   |   `-- README.md
+|   `-- apify-api-run-actor.md
+|-- files
+|-- frontend
+|   |-- app
+|   |   |-- dashboard
+|   |   |   |-- businesses
+|   |   |   |   `-- page.tsx
+|   |   |   |-- locations
+|   |   |   |   `-- page.tsx
+|   |   |   |-- runs
+|   |   |   |   `-- page.tsx
+|   |   |   |-- layout.tsx
+|   |   |   `-- page.tsx
+|   |   |-- fonts
+|   |   |   |-- GeistMonoVF.woff
+|   |   |   `-- GeistVF.woff
+|   |   |-- login
+|   |   |   `-- page.tsx
+|   |   |-- signup
+|   |   |   `-- page.tsx
+|   |   |-- favicon.ico
+|   |   |-- globals.css
+|   |   |-- layout.tsx
+|   |   `-- page.tsx
+|   |-- components
+|   |   |-- add-location-form.tsx
+|   |   |-- businesses-table.tsx
+|   |   |-- csv-import-modal.tsx
+|   |   |-- dashboard-stats.tsx
+|   |   |-- locations-table.tsx
+|   |   |-- login-form.tsx
+|   |   |-- logout-button.tsx
+|   |   |-- runs-table.tsx
+|   |   |-- scrape-runs-table.tsx
+|   |   |-- sidebar.tsx
+|   |   `-- signup-form.tsx
+|   |-- lib
+|   |   |-- supabase-browser.ts
+|   |   `-- supabase-server.ts
+|   |-- .env.local
+|   |-- .eslintrc.json
+|   |-- .gitignore
+|   |-- README.md
+|   |-- middleware.ts
+|   |-- next-env.d.ts
+|   |-- next.config.mjs
+|   |-- package-lock.json
+|   |-- package.json
+|   |-- postcss.config.mjs
+|   |-- tailwind.config.ts
+|   `-- tsconfig.json
+|-- .gitignore
+|-- .mcp.json
+`-- folder-structure.txt
+
+86 directories, 281 files

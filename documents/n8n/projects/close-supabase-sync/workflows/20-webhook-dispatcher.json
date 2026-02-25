@@ -1,0 +1,252 @@
+{
+  "name": "20-webhook-dispatcher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "close-activity-webhook",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "webhook-20",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "close-activity-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Close webhook payload\nconst body = $json.body || $json;\nconst event = body.event || body;\nconst data = event.data || event;\n\n// Validate required fields\nif (!data || !data.id || !data.lead_id || !data.custom_activity_type_id) {\n  return [{ json: { _skip: true, reason: 'Missing required fields (id, lead_id, or custom_activity_type_id)' } }];\n}\n\n// Extract core fields\nconst activityId = data.id;\nconst leadId = data.lead_id;\nconst userId = data.user_id || data.created_by || null;\nconst typeId = data.custom_activity_type_id;\nconst dateCreated = data.date_created || new Date().toISOString();\n\n// Extract all custom fields (custom.cf_xxx)\nconst customFields = {};\nfor (const [key, value] of Object.entries(data)) {\n  if (key.startsWith('custom.')) {\n    customFields[key] = value;\n  }\n}\n\nreturn [{\n  json: {\n    _skip: false,\n    activityId,\n    leadId,\n    userId,\n    typeId,\n    dateCreated,\n    customFields,\n    rawEvent: event\n  }\n}];"
+      },
+      "id": "validate-20",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "if-valid-20",
+      "name": "Is Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json;\nconst typeId = input.typeId;\n\n// Activity Type Mapping\nconst TYPE_MAP = {\n  'actitype_6GTMexlVYwCl3ER9rYB4x4': { name: 'eg-vereinbart-et', workflow: '21-eg-vereinbart' },\n  'actitype_5lGDZdgbNYgL7ii0Bbjno9': { name: 'eg-noshow', workflow: '22-eg-noshow' },\n  'actitype_0Pow7dFbqAOrFjLsCT068D': { name: 'eg-stattgefunden', workflow: '23-eg-stattgefunden' },\n  'actitype_1t4dAEI4JjnbDr6mRnECr0': { name: 'sg-stattgefunden', workflow: '24-sg-stattgefunden' },\n  'actitype_0kl5mkpGgPgDhbQEYKyJvD': { name: 'sg-noshow', workflow: '25-sg-noshow' },\n  'actitype_4SrDqCdE7yZuxZrw3YxoLI': { name: 'angebot-erstellen', workflow: '26-angebot-erstellen' },\n  'actitype_3dEZCczRxJQieHfSCDW3bg': { name: 'kunde-gewonnen', workflow: '27-kunde-gewonnen' },\n  'actitype_6dqeewSGR6SAXD6ZH9xbM3': { name: 'kunde-verloren', workflow: '28-kunde-verloren' }\n};\n\nconst mapping = TYPE_MAP[typeId];\nif (!mapping) {\n  return [{ json: { ...input, _route: 'unknown', _routeName: 'unknown-type: ' + typeId } }];\n}\n\nreturn [{ json: { ...input, _route: mapping.name, _routeName: mapping.workflow } }];"
+      },
+      "id": "route-20",
+      "name": "Resolve Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            { "outputIndex": 0, "value": "eg-vereinbart-et" },
+            { "outputIndex": 1, "value": "eg-noshow" },
+            { "outputIndex": 2, "value": "eg-stattgefunden" },
+            { "outputIndex": 3, "value": "sg-stattgefunden" },
+            { "outputIndex": 4, "value": "sg-noshow" },
+            { "outputIndex": 5, "value": "angebot-erstellen" },
+            { "outputIndex": 6, "value": "kunde-gewonnen" },
+            { "outputIndex": 7, "value": "kunde-verloren" }
+          ]
+        },
+        "dataPropertyName": "_route",
+        "fallbackOutput": "extra"
+      },
+      "id": "switch-20",
+      "name": "Route by Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [960, 200]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "list", "value": "" },
+        "options": {}
+      },
+      "id": "exec-21",
+      "name": "→ 21 EG Vereinbart",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1240, -200]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "list", "value": "" },
+        "options": {}
+      },
+      "id": "exec-22",
+      "name": "→ 22 EG NoShow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1240, -50]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "list", "value": "" },
+        "options": {}
+      },
+      "id": "exec-23",
+      "name": "→ 23 EG Stattgefunden",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1240, 100]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "list", "value": "" },
+        "options": {}
+      },
+      "id": "exec-24",
+      "name": "→ 24 SG Stattgefunden",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1240, 250]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "list", "value": "" },
+        "options": {}
+      },
+      "id": "exec-25",
+      "name": "→ 25 SG NoShow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1240, 400]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "list", "value": "" },
+        "options": {}
+      },
+      "id": "exec-26",
+      "name": "→ 26 Angebot",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1240, 550]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "list", "value": "" },
+        "options": {}
+      },
+      "id": "exec-27",
+      "name": "→ 27 Gewonnen",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1240, 700]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "list", "value": "" },
+        "options": {}
+      },
+      "id": "exec-28",
+      "name": "→ 28 Verloren",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1240, 850]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log unknown activity type\nconst input = $json;\nconsole.log('Unknown activity type:', input.typeId, input._routeName);\nreturn [{ json: { logged: true, typeId: input.typeId } }];"
+      },
+      "id": "log-unknown-20",
+      "name": "Log Unknown Type",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1240, 1000]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log skipped (invalid) webhook payload\nconst input = $json;\nconsole.log('Skipped webhook:', input.reason);\nreturn [{ json: { skipped: true, reason: input.reason } }];"
+      },
+      "id": "log-skip-20",
+      "name": "Log Skipped",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_error', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Unknown dispatcher error').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-log-20",
+      "name": "Log Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 600],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Validate Payload", "type": "main", "index": 0 }]]
+    },
+    "Validate Payload": {
+      "main": [[{ "node": "Is Valid?", "type": "main", "index": 0 }]]
+    },
+    "Is Valid?": {
+      "main": [
+        [{ "node": "Resolve Route", "type": "main", "index": 0 }],
+        [{ "node": "Log Skipped", "type": "main", "index": 0 }]
+      ]
+    },
+    "Resolve Route": {
+      "main": [[{ "node": "Route by Type", "type": "main", "index": 0 }]]
+    },
+    "Route by Type": {
+      "main": [
+        [{ "node": "→ 21 EG Vereinbart", "type": "main", "index": 0 }],
+        [{ "node": "→ 22 EG NoShow", "type": "main", "index": 0 }],
+        [{ "node": "→ 23 EG Stattgefunden", "type": "main", "index": 0 }],
+        [{ "node": "→ 24 SG Stattgefunden", "type": "main", "index": 0 }],
+        [{ "node": "→ 25 SG NoShow", "type": "main", "index": 0 }],
+        [{ "node": "→ 26 Angebot", "type": "main", "index": 0 }],
+        [{ "node": "→ 27 Gewonnen", "type": "main", "index": 0 }],
+        [{ "node": "→ 28 Verloren", "type": "main", "index": 0 }],
+        [{ "node": "Log Unknown Type", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

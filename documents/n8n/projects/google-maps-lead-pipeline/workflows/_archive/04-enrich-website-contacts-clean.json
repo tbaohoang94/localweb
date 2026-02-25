@@ -1,0 +1,329 @@
+{
+  "id": "dhboXds7Ff8566aP",
+  "name": "04-enrich-website-contacts-clean",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 288]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/unenriched_businesses?limit=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-businesses",
+      "name": "Get Unenriched Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 288]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "loop",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [448, 288],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Loop Over Items').first().json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"enrichment_status\": \"pending\"}",
+        "options": {}
+      },
+      "id": "set-pending",
+      "name": "Mark as Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, 208]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Loop Over Items').first().json.website.startsWith('http') ? $('Loop Over Items').first().json.website : 'https://' + $('Loop Over Items').first().json.website }}",
+        "options": {}
+      },
+      "id": "fetch-website",
+      "name": "Fetch Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [896, 208],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [{ "id": "1", "leftValue": "={{ $json.error || '' }}", "rightValue": "", "operator": { "type": "string", "operation": "equals" } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-success",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1120, 192],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Loop Over Items').first().json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"enrichment_status\": \"failed\",\n  \"enriched_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "mark-failed",
+      "name": "Mark Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2816, 336]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the HTML response from HTTP Request node\nconst html = $input.first().json.data || '';\n\nfunction cleanHtmlToText(html) {\n  if (!html || typeof html !== 'string') return '';\n  if (html.includes('Attention Required! | Cloudflare')) return '';\n\n  let cleaned = html.replace(/<(script|style|noscript|svg|canvas|iframe|video|audio|picture|source)[^>]*>([\\s\\S]*?)<\\/\\1>/gi, '');\n  cleaned = cleaned.replace(/<(script|style|noscript|svg|canvas|iframe|video|audio|picture|source)[^>]*\\/>/gi, '');\n\n  const parts = [];\n  const tagPattern = /<(p|li|h[1-6])[^>]*>([\\s\\S]*?)<\\/\\1>/gi;\n  let match;\n  \n  while ((match = tagPattern.exec(cleaned)) !== null) {\n    let text = match[2];\n    text = text.replace(/<br[^>]*>/gi, '\\n');\n    text = text.replace(/<[^>]+>/g, '');\n    text = text.replace(/\\u00a0/g, ' ');\n    text = text.replace(/[ \\t]+/g, ' ');\n    text = text.replace(/\\n{2,}/g, '\\n');\n    text = text.trim();\n    if (text) parts.push(text);\n  }\n\n  return parts.join('\\n');\n}\n\nconst homepageText = cleanHtmlToText(html);\n\nreturn [{\n  json: {\n    homepageText: homepageText\n  }\n}];"
+      },
+      "id": "html-to-text",
+      "name": "Clean Homepage HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1344, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const loopItem = $('Loop Over Items').first().json;\nconst website = loopItem.website || '';\nconst homepageText = $input.first().json.homepageText || '';\n\nlet baseUrl = website.trim();\nif (!baseUrl.startsWith('http')) {\n  baseUrl = 'https://' + baseUrl;\n}\nbaseUrl = baseUrl.replace(/\\/$/, '');\n\nconst impressumUrl = baseUrl + '/impressum';\n\nreturn [{\n  json: {\n    impressumUrl: impressumUrl,\n    homepageText: homepageText\n  }\n}];"
+      },
+      "id": "find-impressum",
+      "name": "Create Impressum URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, 80],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.impressumUrl }}",
+        "options": {}
+      },
+      "id": "fetch-impressum",
+      "name": "Fetch Impressum",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1792, 80],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanHtmlToText(html) {\n  if (!html || typeof html !== 'string') return '';\n  if (html.includes('Attention Required! | Cloudflare')) return '';\n\n  let cleaned = html.replace(/<(script|style|noscript|svg|canvas|iframe|video|audio|picture|source)[^>]*>([\\s\\S]*?)<\\/\\1>/gi, '');\n  cleaned = cleaned.replace(/<(script|style|noscript|svg|canvas|iframe|video|audio|picture|source)[^>]*\\/>/gi, '');\n\n  const parts = [];\n  const tagPattern = /<(p|li|h[1-6])[^>]*>([\\s\\S]*?)<\\/\\1>/gi;\n  let match;\n  \n  while ((match = tagPattern.exec(cleaned)) !== null) {\n    let text = match[2];\n    text = text.replace(/<br[^>]*>/gi, '\\n');\n    text = text.replace(/<[^>]+>/g, '');\n    text = text.replace(/\\u00a0/g, ' ');\n    text = text.replace(/[ \\t]+/g, ' ');\n    text = text.replace(/\\n{2,}/g, '\\n');\n    text = text.trim();\n    if (text) parts.push(text);\n  }\n  return parts.join('\\n');\n}\n\nconst previousNode = $('Create Impressum URL').first().json;\nconst homepageText = previousNode.homepageText || '';\n\nconst impressumHtml = $input.first().json.data || $input.first().json.body || '';\nconst impressumText = cleanHtmlToText(impressumHtml);\n\nlet combined = '';\nif (homepageText) combined += `[HOMEPAGE]\\n${homepageText}\\n\\n`;\nif (impressumText) combined += `[IMPRESSUM]\\n${impressumText}`;\n\nconst text = combined.slice(0, 12000);\nconst website = $('Loop Over Items').first().json.website || '';\n\nreturn [{\n  json: {\n    website: website,\n    text: text\n  }\n}];"
+      },
+      "id": "clean-impressum",
+      "name": "Combine Homepage and Impressum",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2016, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Du bist ein Experte für die Extraktion von Geschäftsinformationen aus deutschen Webseiten. Antworte NUR mit validem JSON im Format: {\\\"website_summary\\\": \\\"...\\\", \\\"geschaeftsfuehrer\\\": [...], \\\"email\\\": \\\"...\\\" oder null, \\\"phone\\\": \\\"...\\\" oder null}\\n\\nWICHTIG:\\n1. Extrahiere NUR Geschäftsführer/CEOs aus dem IMPRESSUM-Bereich, KEINE Kundenbewertungen\\n2. Extrahiere NUR E-Mail/Telefon die TATSÄCHLICH im Text stehen\\n3. ERFINDE KEINE Kontaktdaten! Wenn nicht gefunden → null\\n4. website_summary: 1-2 Sätze was das Unternehmen anbietet\\n5. Suche nach 'Geschäftsführer', 'CEO', 'Inhaber' im Impressum\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.text) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "openai-http",
+      "name": "OpenAI Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2240, 80],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const openaiResponse = $input.first().json;\n\nlet parsed = null;\ntry {\n  const content = openaiResponse.choices[0].message.content;\n  parsed = JSON.parse(content);\n} catch (e) {\n  return [{ json: { success: false, error: 'Parse error: ' + e.message } }];\n}\n\nreturn [{\n  json: {\n    success: true,\n    website_summary: parsed.website_summary || '',\n    im_contact_name: (parsed.geschaeftsfuehrer || []).join(', '),\n    im_email: parsed.email || null,\n    im_tel: parsed.phone || null\n  }\n}];"
+      },
+      "id": "parse-enrichment",
+      "name": "Parse Enrichment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2464, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-parse",
+      "name": "Check Parse",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [2592, 80]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Loop Over Items').first().json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"website_summary\": {{ JSON.stringify($json.website_summary) }},\n  \"im_contact_name\": {{ JSON.stringify($json.im_contact_name) }},\n  \"im_email\": {{ JSON.stringify($json.im_email) }},\n  \"im_tel\": {{ JSON.stringify($json.im_tel) }},\n  \"enrichment_status\": \"enriched\",\n  \"enriched_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "save-full",
+      "name": "Save Full Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2816, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "await new Promise(r => setTimeout(r, 1000));\nreturn $input.all();"
+      },
+      "id": "wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3040, 288]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Get Unenriched Businesses", "type": "main", "index": 0 }]]
+    },
+    "Get Unenriched Businesses": {
+      "main": [[{ "node": "Loop Over Items", "type": "main", "index": 0 }]]
+    },
+    "Loop Over Items": {
+      "main": [[], [{ "node": "Mark as Pending", "type": "main", "index": 0 }]]
+    },
+    "Mark as Pending": {
+      "main": [[{ "node": "Fetch Website", "type": "main", "index": 0 }]]
+    },
+    "Fetch Website": {
+      "main": [[{ "node": "Check Success", "type": "main", "index": 0 }]]
+    },
+    "Check Success": {
+      "main": [
+        [{ "node": "Clean Homepage HTML", "type": "main", "index": 0 }],
+        [{ "node": "Mark Failed", "type": "main", "index": 0 }],
+        [{ "node": "Mark Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Mark Failed": {
+      "main": [[{ "node": "Wait", "type": "main", "index": 0 }]]
+    },
+    "Clean Homepage HTML": {
+      "main": [[{ "node": "Create Impressum URL", "type": "main", "index": 0 }]]
+    },
+    "Create Impressum URL": {
+      "main": [[{ "node": "Fetch Impressum", "type": "main", "index": 0 }]]
+    },
+    "Fetch Impressum": {
+      "main": [[{ "node": "Combine Homepage and Impressum", "type": "main", "index": 0 }]]
+    },
+    "Combine Homepage and Impressum": {
+      "main": [[{ "node": "OpenAI Extract", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Extract": {
+      "main": [[{ "node": "Parse Enrichment", "type": "main", "index": 0 }]]
+    },
+    "Parse Enrichment": {
+      "main": [[{ "node": "Check Parse", "type": "main", "index": 0 }]]
+    },
+    "Check Parse": {
+      "main": [
+        [{ "node": "Save Full Enrichment", "type": "main", "index": 0 }],
+        [{ "node": "Mark Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Full Enrichment": {
+      "main": [[{ "node": "Wait", "type": "main", "index": 0 }]]
+    },
+    "Wait": {
+      "main": [[{ "node": "Loop Over Items", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "id": "LxpJz2z2pBYBhBhy",
+  "name": "06-get-closingcalls",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-1904, 944],
+      "id": "926c7994-bcd2-4244-83e3-9ca8ca6e719b",
+      "name": "Workflow Trigger"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "chat-trigger-closingcalls",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [-1904, 1200],
+      "webhookId": "closingcalls-test"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse chat input for test\nconst chatInput = $input.first()?.json?.chatInput || '';\nlet params = {};\n\ntry {\n  params = JSON.parse(chatInput);\n} catch (e) {\n  // Use defaults\n}\n\nreturn [{ json: params }];"
+      },
+      "id": "parse-chat-closingcalls",
+      "name": "Parse Chat Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1680, 1200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.close.com/api/v1/data/search/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [768, 752],
+      "id": "359bde1d-e07e-4f3f-8048-aa94625e1146",
+      "name": "Close: Search Lead",
+      "credentials": { "httpBasicAuth": { "id": "c1zqLlNCaOTBnrvH", "name": "Close.io" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/transcripts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 848],
+      "id": "c3d4e5f6-a7b8-9012-cdef-345678901234",
+      "name": "Insert Transcript",
+      "credentials": {
+        "httpHeaderAuth": { "id": "SUPABASE_HTTP_CREDENTIAL_ID", "name": "Supabase API" }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Trigger": {
+      "main": [[{ "node": "If1", "type": "main", "index": 0 }]]
+    },
+    "Chat Trigger": {
+      "main": [[{ "node": "Parse Chat Input", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

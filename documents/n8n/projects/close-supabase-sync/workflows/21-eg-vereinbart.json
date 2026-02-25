@@ -1,0 +1,341 @@
+{
+  "name": "21-eg-vereinbart",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-21",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/lead/{{ $json.leadId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status_id: 'stat_K2Qg55bQuBZfCZBWZUzriveSwyKQgY1q74IxyJ9EKe2', 'custom.cf_JQHv5ahXesYy3uGpK8QBTngRn3z8UV5hPTODjSt8hvs': $json.userId }) }}",
+        "options": {}
+      },
+      "id": "update-lead-21",
+      "name": "Update Lead Status + EG Field",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 5,
+        "unit": "minutes"
+      },
+      "id": "wait-5m-21",
+      "name": "Wait 5min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const trigger = $('Execute Workflow Trigger').first().json;\nconst dateCreated = trigger.dateCreated || new Date().toISOString();\nconst date = new Date(dateCreated);\nconst dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString();\nconst dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).toISOString();\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.loopCount = 0;\n\nreturn [{ json: { ...trigger, dayStart, dayEnd, loopCount: 0 } }];"
+      },
+      "id": "prepare-poll-21",
+      "name": "Prepare Poll",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.close.com/api/v1/activity/call/?lead_id={{ $json.leadId }}&date_created__gte={{ $json.dayStart }}&date_created__lt={{ $json.dayEnd }}&_limit=100",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-calls-21",
+      "name": "GET Calls",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $('GET Calls').first().json;\nconst callsData = response.data || [];\nconst trigger = $('Execute Workflow Trigger').first().json;\nconst userId = trigger.userId;\n\nconst staticData = $getWorkflowStaticData('global');\nconst loopCount = (staticData.loopCount || 0) + 1;\nstaticData.loopCount = loopCount;\n\nconst callsWithRecording = callsData.filter(c => c.recording_url && c.user_id === userId);\n\nif (callsWithRecording.length > 0) {\n  return [{ json: { found: true, calls: callsWithRecording, loopCount } }];\n}\n\nif (loopCount >= 10) {\n  return [{ json: { found: false, calls: [], loopCount, aborted: true } }];\n}\n\nreturn [{ json: { found: false, calls: [], loopCount, aborted: false } }];"
+      },
+      "id": "check-recordings-21",
+      "name": "Check Recordings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "found-check",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "has-recordings-21",
+      "name": "Has Recordings?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "abort-check",
+              "leftValue": "={{ $json.aborted }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "should-retry-21",
+      "name": "Should Retry?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1680, 500]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 2,
+        "unit": "minutes"
+      },
+      "id": "wait-2m-21",
+      "name": "Wait 2min Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1920, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const trigger = $('Execute Workflow Trigger').first().json;\nconst calls = $('Check Recordings').first().json.calls;\n\nfunction uuid() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n    const r = Math.random() * 16 | 0;\n    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);\n  });\n}\n\nconst transcripts = [];\n\nfor (let i = 0; i < calls.length; i++) {\n  const call = calls[i];\n  if (i > 0) await new Promise(r => setTimeout(r, 2000));\n\n  try {\n    const audioBuffer = await this.helpers.httpRequest({\n      method: 'GET',\n      url: call.recording_url,\n      headers: {\n        'Authorization': 'Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo='\n      },\n      encoding: 'arraybuffer'\n    });\n\n    const boundary = '----n8nBoundary' + Date.now() + i;\n    const modelPart = '--' + boundary + '\\r\\nContent-Disposition: form-data; name=\"model\"\\r\\n\\r\\nwhisper-1\\r\\n';\n    const fileHeader = '--' + boundary + '\\r\\nContent-Disposition: form-data; name=\"file\"; filename=\"recording.mp3\"\\r\\nContent-Type: audio/mpeg\\r\\n\\r\\n';\n    const footer = '\\r\\n--' + boundary + '--\\r\\n';\n\n    const bodyBuffer = Buffer.concat([\n      Buffer.from(modelPart),\n      Buffer.from(fileHeader),\n      Buffer.from(audioBuffer),\n      Buffer.from(footer)\n    ]);\n\n    const whisperResult = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.openai.com/v1/audio/transcriptions',\n      headers: {\n        'Authorization': 'Bearer ' + $env.OPENAI_API_KEY,\n        'Content-Type': 'multipart/form-data; boundary=' + boundary\n      },\n      body: bodyBuffer\n    });\n\n    const transcriptText = typeof whisperResult === 'string' ? whisperResult : (whisperResult.text || JSON.stringify(whisperResult));\n\n    transcripts.push({\n      source_type: 'call',\n      source_id: uuid(),\n      content: transcriptText,\n      call_type: 'coldcalling',\n      url: call.recording_url,\n      synced_at: new Date().toISOString()\n    });\n  } catch (e) {\n    continue;\n  }\n}\n\nreturn [{ json: { transcripts, count: transcripts.length } }];"
+      },
+      "id": "transcribe-calls-21",
+      "name": "Transcribe Calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 100],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "has-transcripts",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "has-transcripts-21",
+      "name": "Has Transcripts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1920, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/transcripts",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.transcripts) }}",
+        "options": {}
+      },
+      "id": "save-transcripts-21",
+      "name": "Save Transcripts to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2160, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'system', content: 'Fasse die folgenden Gesprächstranskripte kurz und strukturiert zusammen. Gib die wichtigsten Punkte und relevante Informationen für das kommende Erstgespräch an. Antworte auf Deutsch.' }, { role: 'user', content: $('Transcribe Calls').first().json.transcripts.map(t => t.content).join('\\n\\n---\\n\\n') }] }) }}",
+        "options": {}
+      },
+      "id": "ai-summary-21",
+      "name": "AI Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.close.com/api/v1/activity/note/",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_id: $('Execute Workflow Trigger').first().json.leadId, note: 'Zusammenfassung Coldcalling-Gespräche\\n\\n' + $json.choices[0].message.content }) }}",
+        "options": {}
+      },
+      "id": "create-note-21",
+      "name": "Create Note in Close",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2640, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_21_eg_vereinbart', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Unknown error in 21-eg-vereinbart').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "log-error-21",
+      "name": "Log Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 600],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Update Lead Status + EG Field", "type": "main", "index": 0 }]]
+    },
+    "Update Lead Status + EG Field": {
+      "main": [[{ "node": "Wait 5min", "type": "main", "index": 0 }]]
+    },
+    "Wait 5min": {
+      "main": [[{ "node": "Prepare Poll", "type": "main", "index": 0 }]]
+    },
+    "Prepare Poll": {
+      "main": [[{ "node": "GET Calls", "type": "main", "index": 0 }]]
+    },
+    "GET Calls": {
+      "main": [[{ "node": "Check Recordings", "type": "main", "index": 0 }]]
+    },
+    "Check Recordings": {
+      "main": [[{ "node": "Has Recordings?", "type": "main", "index": 0 }]]
+    },
+    "Has Recordings?": {
+      "main": [
+        [{ "node": "Transcribe Calls", "type": "main", "index": 0 }],
+        [{ "node": "Should Retry?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Should Retry?": {
+      "main": [
+        [{ "node": "Wait 2min Retry", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Wait 2min Retry": {
+      "main": [[{ "node": "GET Calls", "type": "main", "index": 0 }]]
+    },
+    "Transcribe Calls": {
+      "main": [[{ "node": "Has Transcripts?", "type": "main", "index": 0 }]]
+    },
+    "Has Transcripts?": {
+      "main": [
+        [{ "node": "Save Transcripts to Supabase", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Save Transcripts to Supabase": {
+      "main": [[{ "node": "AI Summary", "type": "main", "index": 0 }]]
+    },
+    "AI Summary": {
+      "main": [[{ "node": "Create Note in Close", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

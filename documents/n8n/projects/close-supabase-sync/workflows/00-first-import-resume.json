@@ -1,0 +1,161 @@
+{
+  "id": "Kna9hsuBbSjWt8Fk",
+  "name": "00-first-import-resume",
+  "nodes": [
+    {
+      "id": "trigger-fir",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "parameters": {}
+    },
+    {
+      "id": "chunks-fir",
+      "name": "Generate Chunks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [224, 300],
+      "parameters": {
+        "jsCode": "const startYear = 2020;\nconst endYear = new Date().getFullYear();\nconst chunks = [];\nfor (let y = startYear; y <= endYear; y++) {\n  chunks.push({\n    since: y + '-01-01T00:00:00.000Z',\n    until: (y + 1) + '-01-01T00:00:00.000Z',\n    label: 'Year ' + y\n  });\n}\nreturn chunks.map(c => ({ json: c }));"
+      }
+    },
+    {
+      "id": "batch-fir",
+      "name": "Process Chunk",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [448, 300],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "log-start-fir",
+      "name": "Log Chunk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, 300],
+      "parameters": {
+        "jsCode": "const chunk = $input.first().json;\nconsole.log('Processing: ' + chunk.label + ' (since=' + chunk.since + ', until=' + chunk.until + ')');\nreturn [{ json: { since: chunk.since, until: chunk.until } }];"
+      }
+    },
+    {
+      "id": "exec-05-fir",
+      "name": "05 Sync Calls",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [896, 300],
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "yTKEleR62nPoSjDU", "mode": "id" },
+        "options": {}
+      }
+    },
+    {
+      "id": "reset-06-fir",
+      "name": "Reset for Meetings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "parameters": {
+        "jsCode": "const chunk = $('Log Chunk').first().json;\nreturn [{ json: { since: chunk.since, until: chunk.until } }];"
+      }
+    },
+    {
+      "id": "exec-06-fir",
+      "name": "06 Sync Meetings",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1344, 300],
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "IlARmuyC2IJ1ciLd", "mode": "id" },
+        "options": {}
+      }
+    },
+    {
+      "id": "reset-07-fir",
+      "name": "Reset for Activities",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, 300],
+      "parameters": {
+        "jsCode": "const chunk = $('Log Chunk').first().json;\nreturn [{ json: { since: chunk.since, until: chunk.until } }];"
+      }
+    },
+    {
+      "id": "exec-07-fir",
+      "name": "07 Sync Custom Activities",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1792, 300],
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "6hVvL0XTQr4kMEQX", "mode": "id" },
+        "options": {}
+      }
+    },
+    {
+      "id": "wait-fir",
+      "name": "Wait 2s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2016, 300],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 2,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "exec-10-fir",
+      "name": "10 Sync Demodesk",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [672, 100],
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "1mtLiN4tCIM54t84", "mode": "id" },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Generate Chunks", "type": "main", "index": 0 }]]
+    },
+    "Generate Chunks": {
+      "main": [[{ "node": "Process Chunk", "type": "main", "index": 0 }]]
+    },
+    "Process Chunk": {
+      "main": [
+        [{ "node": "10 Sync Demodesk", "type": "main", "index": 0 }],
+        [{ "node": "Log Chunk", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Chunk": {
+      "main": [[{ "node": "05 Sync Calls", "type": "main", "index": 0 }]]
+    },
+    "05 Sync Calls": {
+      "main": [[{ "node": "Reset for Meetings", "type": "main", "index": 0 }]]
+    },
+    "Reset for Meetings": {
+      "main": [[{ "node": "06 Sync Meetings", "type": "main", "index": 0 }]]
+    },
+    "06 Sync Meetings": {
+      "main": [[{ "node": "Reset for Activities", "type": "main", "index": 0 }]]
+    },
+    "Reset for Activities": {
+      "main": [[{ "node": "07 Sync Custom Activities", "type": "main", "index": 0 }]]
+    },
+    "07 Sync Custom Activities": {
+      "main": [[{ "node": "Wait 2s", "type": "main", "index": 0 }]]
+    },
+    "Wait 2s": {
+      "main": [[{ "node": "Process Chunk", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

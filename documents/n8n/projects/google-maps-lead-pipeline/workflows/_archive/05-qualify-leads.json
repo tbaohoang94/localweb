@@ -1,0 +1,211 @@
+{
+  "id": "iZ742G3RZdNBRHrj",
+  "name": "05-qualify-leads",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 288]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?qualification_status=is.null&enrichment_status=eq.enriched&limit=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-businesses",
+      "name": "Get Unqualified Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 288]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [448, 288],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Du bist ein Lead-Qualifier für eine Local SEO Agentur. Prüfe ob dieses Unternehmen ein qualifizierter Lead ist.\\n\\nQUALIFIZIERT wenn ALLE zutreffen:\\n1. KEIN Franchise/Kette (muss lokales Einzelunternehmen sein)\\n2. Bietet lokale Dienstleistungen an (nicht nur Online/E-Commerce)\\n3. Würde von Google Maps / Local SEO profitieren\\n4. Branche passt zum Suchbegriff\\n\\nUNQUALIFIZIERT wenn EINES zutrifft:\\n- Große Kette/Franchise (McDonald's, Fressnapf, etc.)\\n- Rein online tätig (kein lokaler Bezug)\\n- Bereits sehr bekannte Marke\\n\\nAntworte NUR mit JSON:\\n{\\\"qualified\\\": true/false, \\\"reason\\\": \\\"Kurze Begründung auf Deutsch\\\"}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(\"Name: \" + $json.name + \"\\nKategorie: \" + ($json.category || \"unbekannt\") + \"\\nSuchbegriff: \" + ($json.search_string || \"unbekannt\") + ($json.website_summary ? \"\\nWebsite-Zusammenfassung: \" + $json.website_summary : \"\")) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "openai-qualify",
+      "name": "OpenAI Qualify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, 288],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content ? $json.choices[0].message.content : '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-response",
+      "name": "Check Response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [896, 288]
+    },
+    {
+      "parameters": {
+        "jsCode": "const loopItem = $('Loop Over Items').first().json;\nconst openaiResponse = $input.first().json;\n\nlet qualified = false;\nlet reason = '';\n\ntry {\n  const content = openaiResponse.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  qualified = parsed.qualified === true;\n  reason = parsed.reason || '';\n} catch (e) {\n  reason = 'Parse error: ' + e.message;\n}\n\nreturn [{\n  json: {\n    businessId: loopItem.id,\n    qualification_status: qualified ? 'qualified' : 'unqualified',\n    qualification_reason: reason\n  }\n}];"
+      },
+      "id": "parse-qualification",
+      "name": "Parse Qualification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 208]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $json.businessId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"qualification_status\": {{ JSON.stringify($json.qualification_status) }},\n  \"qualification_reason\": {{ JSON.stringify($json.qualification_reason) }},\n  \"qualified_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "save-qualification",
+      "name": "Save Qualification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1344, 208]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Loop Over Items').first().json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"qualification_status\": \"failed\",\n  \"qualified_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "mark-failed",
+      "name": "Mark Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 368]
+    },
+    {
+      "parameters": {
+        "jsCode": "await new Promise(r => setTimeout(r, 1000));\nreturn $input.all();"
+      },
+      "id": "wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, 288]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Get Unqualified Businesses", "type": "main", "index": 0 }]]
+    },
+    "Get Unqualified Businesses": {
+      "main": [[{ "node": "Loop Over Items", "type": "main", "index": 0 }]]
+    },
+    "Loop Over Items": {
+      "main": [[], [{ "node": "OpenAI Qualify", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Qualify": {
+      "main": [[{ "node": "Check Response", "type": "main", "index": 0 }]]
+    },
+    "Check Response": {
+      "main": [
+        [{ "node": "Parse Qualification", "type": "main", "index": 0 }],
+        [{ "node": "Mark Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Qualification": {
+      "main": [[{ "node": "Save Qualification", "type": "main", "index": 0 }]]
+    },
+    "Save Qualification": {
+      "main": [[{ "node": "Wait", "type": "main", "index": 0 }]]
+    },
+    "Mark Failed": {
+      "main": [[{ "node": "Wait", "type": "main", "index": 0 }]]
+    },
+    "Wait": {
+      "main": [[{ "node": "Loop Over Items", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

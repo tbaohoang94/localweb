@@ -29,6 +29,8 @@ node_modules/
 .DS_Store
 venv/
 
-# Claude Code (session data, not config)
+# Claude Code (session data, local settings with keys)
 .claude/projects/
+.claude/settings.local.json
 skills-lock.json
+.agents/skills/n8n/

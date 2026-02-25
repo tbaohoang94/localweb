@@ -1,0 +1,482 @@
+{
+  "id": "4CacfauoGzrNDHhp",
+  "name": "04b-enrich-worker",
+  "active": true,
+  "nodes": [
+    {
+      "id": "wf-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "fetch-website",
+      "name": "Fetch Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        200
+      ],
+      "parameters": {
+        "url": "={{ $json.website.startsWith('http') ? $json.website : 'https://' + $json.website }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "check-success",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.error || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {},
+        "looseTypeValidation": true
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "html-to-text",
+      "name": "Clean Homepage HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const html = $input.first().json.data || '';\n\nfunction cleanHtmlToText(html) {\n  if (!html || typeof html !== 'string') return '';\n  if (html.includes('Attention Required! | Cloudflare')) return '';\n  let cleaned = html.replace(/<(script|style|noscript|svg|canvas|iframe|video|audio|picture|source)[^>]*>[\\s\\S]*?<\\/\\1>/gi, '');\n  cleaned = cleaned.replace(/<(script|style|noscript|svg|canvas|iframe|video|audio|picture|source)[^>]*\\/>/gi, '');\n  const parts = [];\n  const tagPattern = /<(p|li|h[1-6])[^>]*>([\\s\\S]*?)<\\/\\1>/gi;\n  let match;\n  while ((match = tagPattern.exec(cleaned)) !== null) {\n    let text = match[2];\n    text = text.replace(/<br[^>]*>/gi, '\\n');\n    text = text.replace(/<[^>]+>/g, '');\n    text = text.replace(/\\u00a0/g, ' ');\n    text = text.replace(/[ \\t]+/g, ' ');\n    text = text.replace(/\\n{2,}/g, '\\n');\n    text = text.trim();\n    if (text) parts.push(text);\n  }\n  return parts.join('\\n');\n}\n\n// Extract impressum link from raw HTML\nlet impressumPath = null;\nconst linkPattern = /<a[^>]+href=[\"']([^\"']+)['\"][^>]*>[^<]*(?:impressum|imprint)[^<]*<\\/a>/gi;\nconst linkMatch = linkPattern.exec(html);\nif (linkMatch) impressumPath = linkMatch[1];\n\nreturn [{ json: { homepageText: cleanHtmlToText(html), impressumPath } }];"
+      }
+    },
+    {
+      "id": "find-impressum",
+      "name": "Create Impressum URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const website = $('Execute Workflow Trigger').first().json.website || '';\nconst homepageText = $input.first().json.homepageText || '';\nconst impressumPath = $input.first().json.impressumPath || null;\nlet baseUrl = website.trim();\nif (!baseUrl.startsWith('http')) baseUrl = 'https://' + baseUrl;\nbaseUrl = baseUrl.replace(/\\/$/, '');\nlet impressumUrl;\nif (impressumPath) {\n  impressumUrl = impressumPath.startsWith('http') ? impressumPath : baseUrl + (impressumPath.startsWith('/') ? '' : '/') + impressumPath;\n} else {\n  impressumUrl = baseUrl + '/impressum';\n}\nreturn [{ json: { impressumUrl, homepageText } }];"
+      }
+    },
+    {
+      "id": "fetch-impressum",
+      "name": "Fetch Impressum",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        100
+      ],
+      "parameters": {
+        "url": "={{ $json.impressumUrl }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "clean-impressum",
+      "name": "Combine Homepage and Impressum",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        100
+      ],
+      "parameters": {
+        "jsCode": "function cleanHtmlToText(html) {\n  if (!html || typeof html !== 'string') return '';\n  if (html.includes('Attention Required! | Cloudflare')) return '';\n  let cleaned = html.replace(/<(script|style|noscript|svg|canvas|iframe|video|audio|picture|source)[^>]*>[\\s\\S]*?<\\/\\1>/gi, '');\n  cleaned = cleaned.replace(/<(script|style|noscript|svg|canvas|iframe|video|audio|picture|source)[^>]*\\/>/gi, '');\n  const parts = [];\n  const tagPattern = /<(p|li|h[1-6])[^>]*>([\\s\\S]*?)<\\/\\1>/gi;\n  let match;\n  while ((match = tagPattern.exec(cleaned)) !== null) {\n    let text = match[2];\n    text = text.replace(/<br[^>]*>/gi, '\\n');\n    text = text.replace(/<[^>]+>/g, '');\n    text = text.replace(/\\u00a0/g, ' ');\n    text = text.replace(/[ \\t]+/g, ' ');\n    text = text.replace(/\\n{2,}/g, '\\n');\n    text = text.trim();\n    if (text) parts.push(text);\n  }\n  return parts.join('\\n');\n}\nconst homepageText = $('Create Impressum URL').first().json.homepageText || '';\nconst impressumHtml = $input.first().json.data || $input.first().json.body || '';\nconst impressumText = cleanHtmlToText(impressumHtml);\nlet combined = '';\nif (impressumText) combined += '[IMPRESSUM]\\n' + impressumText + '\\n\\n';\nif (homepageText) combined += '[HOMEPAGE]\\n' + homepageText;\nreturn [{ json: { website: $('Execute Workflow Trigger').first().json.website || '', text: combined.slice(0, 12000) } }];"
+      }
+    },
+    {
+      "id": "openai-http",
+      "name": "OpenAI Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Du bist ein Experte für die Extraktion von Geschäftsinformationen aus deutschen Webseiten. Antworte NUR mit validem JSON im Format: {\\\"website_summary\\\": \\\"...\\\", \\\"geschaeftsfuehrer\\\": [...], \\\"email\\\": \\\"...\\\" oder null, \\\"phone\\\": \\\"...\\\" oder null}\\n\\nWICHTIG:\\n1. Extrahiere NUR Geschäftsführer/CEOs aus dem IMPRESSUM-Bereich, KEINE Kundenbewertungen\\n2. Extrahiere NUR E-Mail/Telefon die TATSÄCHLICH im Text stehen\\n3. ERFINDE KEINE Kontaktdaten! Wenn nicht gefunden → null\\n4. website_summary: 1-2 Sätze was das Unternehmen anbietet\\n5. Suche nach 'Geschäftsführer', 'CEO', 'Inhaber' im Impressum\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.text) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "parse-enrichment",
+      "name": "Parse Enrichment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        100
+      ],
+      "parameters": {
+        "jsCode": "try {\n  const resp = $input.first().json;\n  // Validate OpenAI response structure\n  if (!resp.choices || !resp.choices[0]?.message?.content) {\n    return [{ json: { success: false } }];\n  }\n  const content = resp.choices[0].message.content;\n  const parsed = JSON.parse(content);\n\n  // If no useful data extracted (e.g. Cloudflare block → empty text → empty response)\n  if (!parsed.website_summary && !parsed.email && !parsed.phone && (!parsed.geschaeftsfuehrer || parsed.geschaeftsfuehrer.length === 0)) {\n    return [{ json: { success: false } }];\n  }\n\n  // Validate email format\n  let email = parsed.email || null;\n  if (email) {\n    email = email.trim();\n    if (!/^[^\\s@]+@[^\\s@]+\\.[a-zA-Z]{2,}$/.test(email)) email = null;\n  }\n\n  // Normalize phone to +49 E.164\n  let phone = parsed.phone || null;\n  if (phone) {\n    phone = phone.replace(/[^\\d+]/g, '');\n    if (phone.startsWith('+490')) phone = '+49' + phone.substring(4);\n    if (phone.startsWith('0') && !phone.startsWith('00')) phone = '+49' + phone.substring(1);\n    if (!phone.startsWith('+49')) phone = null;\n  }\n\n  return [{\n    json: {\n      success: true,\n      website_summary: parsed.website_summary || '',\n      im_contact_name: (parsed.geschaeftsfuehrer || []).map(g => typeof g === 'string' ? g : g.name).join(', '),\n      im_email: email,\n      im_tel: phone\n    }\n  }];\n} catch (e) {\n  return [{ json: { success: false } }];\n}"
+      }
+    },
+    {
+      "id": "check-parse",
+      "name": "Check Parse",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2016,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "save-full",
+      "name": "Save Full Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Execute Workflow Trigger').first().json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"website_summary\": {{ JSON.stringify($json.website_summary || '') }},\n  \"im_contact_name\": {{ JSON.stringify($json.im_contact_name || '') }},\n  \"im_email\": {{ JSON.stringify($json.im_email || null) }},\n  \"im_tel\": {{ JSON.stringify($json.im_tel || null) }},\n  \"enrichment_status\": \"enriched\",\n  \"enriched_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "mark-failed",
+      "name": "Mark Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        300
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Execute Workflow Trigger').first().json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"enrichment_status\": \"failed\",\n  \"enriched_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "update-phone-fallback",
+      "name": "Update Phone Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2464,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Execute Workflow Trigger').first().json.id }}&phone=is.null",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"phone\": {{ JSON.stringify($('Parse Enrichment').first().json.im_tel) }}}",
+        "options": {}
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Website": {
+      "main": [
+        [
+          {
+            "node": "Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [
+          {
+            "node": "Clean Homepage HTML",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Homepage HTML": {
+      "main": [
+        [
+          {
+            "node": "Create Impressum URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Impressum URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch Impressum",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Impressum": {
+      "main": [
+        [
+          {
+            "node": "Combine Homepage and Impressum",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Homepage and Impressum": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Extract": {
+      "main": [
+        [
+          {
+            "node": "Parse Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Check Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Parse": {
+      "main": [
+        [
+          {
+            "node": "Save Full Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Full Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Update Phone Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "5Twy03WAFur7CZcD"
+  }
+}
