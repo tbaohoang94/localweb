@@ -1,0 +1,108 @@
+{
+  "id": "5Twy03WAFur7CZcD",
+  "name": "07 - Google Maps Pipeline - Error Logger",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 288]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/workflow_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow_name\": {{ JSON.stringify($json.workflow.name) }},\n  \"execution_id\": {{ JSON.stringify($json.execution.id) }},\n  \"status\": \"error\",\n  \"error_node\": {{ JSON.stringify($json.execution.error.node?.name || 'unknown') }},\n  \"error_message\": {{ JSON.stringify(($json.execution.error.message || '').substring(0, 500)) }},\n  \"run_date\": {{ JSON.stringify($now.toISODate()) }},\n  \"details\": {{ JSON.stringify({ workflowId: $json.workflow.id, executionUrl: $json.execution.url }) }}\n}",
+        "options": {}
+      },
+      "id": "write-log",
+      "name": "Write Error Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 288],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/system_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source\": \"n8n\",\n  \"severity\": \"error\",\n  \"workflow_name\": {{ JSON.stringify($('Error Trigger').first().json.workflow.name) }},\n  \"error_message\": {{ JSON.stringify(($('Error Trigger').first().json.execution.error.message || '').substring(0, 1000)) }},\n  \"error_stack\": {{ JSON.stringify(($('Error Trigger').first().json.execution.error.stack || '').substring(0, 2000)) }},\n  \"metadata\": {{ JSON.stringify({ workflowId: $('Error Trigger').first().json.workflow.id, executionId: $('Error Trigger').first().json.execution.id, executionUrl: $('Error Trigger').first().json.execution.url, errorNode: $('Error Trigger').first().json.execution.error.node?.name || 'unknown' }) }}\n}",
+        "options": {}
+      },
+      "id": "write-system-log",
+      "name": "Write System Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 500],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "toEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "subject": "=n8n Fehler: {{ $('Error Trigger').first().json.workflow.name }}",
+        "emailFormat": "html",
+        "html": "=<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px;\">\n  <h2 style=\"color: #dc2626; margin-bottom: 16px;\">Pipeline Fehler</h2>\n  \n  <table style=\"width: 100%; border-collapse: collapse; font-size: 14px;\">\n    <tr style=\"border-bottom: 1px solid #e5e7eb;\">\n      <td style=\"padding: 8px 12px; font-weight: 600; color: #374151; width: 140px;\">Workflow</td>\n      <td style=\"padding: 8px 12px;\">{{ $('Error Trigger').first().json.workflow.name }}</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #e5e7eb;\">\n      <td style=\"padding: 8px 12px; font-weight: 600; color: #374151;\">Fehler-Node</td>\n      <td style=\"padding: 8px 12px;\">{{ $('Error Trigger').first().json.execution.error.node?.name || 'unbekannt' }}</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #e5e7eb;\">\n      <td style=\"padding: 8px 12px; font-weight: 600; color: #374151;\">Fehlermeldung</td>\n      <td style=\"padding: 8px 12px; color: #dc2626;\">{{ ($('Error Trigger').first().json.execution.error.message || 'Keine Fehlermeldung').substring(0, 500) }}</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #e5e7eb;\">\n      <td style=\"padding: 8px 12px; font-weight: 600; color: #374151;\">Execution ID</td>\n      <td style=\"padding: 8px 12px;\">{{ $('Error Trigger').first().json.execution.id }}</td>\n    </tr>\n    <tr>\n      <td style=\"padding: 8px 12px; font-weight: 600; color: #374151;\">Zeitpunkt</td>\n      <td style=\"padding: 8px 12px;\">{{ $now.setZone('Europe/Berlin').toFormat('dd.MM.yyyy HH:mm:ss') }}</td>\n    </tr>\n  </table>\n  \n  <div style=\"margin-top: 16px;\">\n    <a href=\"{{ $('Error Trigger').first().json.execution.url }}\" style=\"display: inline-block; padding: 8px 16px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;\">Execution oeffnen</a>\n  </div>\n  \n  <p style=\"color: #9ca3af; font-size: 11px; margin-top: 24px;\">Google Maps Lead Pipeline — n8n Error Logger</p>\n</div>",
+        "options": {}
+      },
+      "id": "send-alert",
+      "name": "Send Error Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [448, 288],
+      "credentials": {
+        "smtp": {
+          "id": "iBtNZwUPeBcnCSwj",
+          "name": "SMTP account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          { "node": "Write Error Log", "type": "main", "index": 0 },
+          { "node": "Write System Log", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Write Error Log": {
+      "main": [
+        [
+          { "node": "Send Error Alert", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

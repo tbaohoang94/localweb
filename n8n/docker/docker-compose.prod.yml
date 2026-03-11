@@ -1,0 +1,165 @@
+# Produktion-Overlay fuer Hetzner
+# Wird mit dem Base-File gemerged: make prod-up
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Das Base-File liefert: DB-Verbindung, Credentials, Puppeteer, Healthchecks
+# Dieses File fuegt hinzu: Caddy (TLS), HTTPS, Queue Mode, Redis, Worker, Logging
+#
+# HINWEIS: ports 5678 und 5432 bleiben vom Base-File erhalten (Docker Compose
+# Merge kann keine Keys entfernen). Hetzner-Firewall muss diese Ports blocken.
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      n8n:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    logging:
+      <<: *default-logging
+
+  postgres:
+    mem_limit: 1g
+    logging:
+      <<: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      <<: *default-logging
+
+  n8n:
+    # Prod-Overrides — Credentials + Base-Config kommen aus docker-compose.yml
+    mem_limit: 4g
+    expose:
+      - "5678"
+    environment:
+      # Task Runner, Concurrency & Timeouts (aus Base ausgelagert)
+      N8N_RUNNERS_MAX_OLD_SPACE_SIZE: "2048"
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "8"
+      EXECUTIONS_TIMEOUT: "900"
+      EXECUTIONS_TIMEOUT_MAX: "1800"
+      # Host & URLs (ueberschreiben localhost aus Base)
+      N8N_HOST: ${N8N_HOST}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST}/
+      N8N_EDITOR_BASE_URL: https://${N8N_HOST}
+      N8N_SECURE_COOKIE: "true"
+
+      # Logging & Metrics
+      N8N_LOG_FORMAT: ${N8N_LOG_FORMAT}
+      N8N_LOG_LEVEL: ${N8N_LOG_LEVEL}
+      N8N_METRICS: ${N8N_METRICS}
+
+      # Queue Mode
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: ${QUEUE_BULL_REDIS_HOST}
+      QUEUE_BULL_REDIS_PORT: ${QUEUE_BULL_REDIS_PORT}
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      <<: *default-logging
+
+  n8n-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 4g
+    command: worker
+    environment:
+      # Database
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      # Encryption
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: ${N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS}
+
+      # Queue Mode
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: ${QUEUE_BULL_REDIS_HOST}
+      QUEUE_BULL_REDIS_PORT: ${QUEUE_BULL_REDIS_PORT}
+
+      # Community Packages
+      N8N_COMMUNITY_PACKAGES: "@apify/n8n-nodes-apify"
+
+      # Task Runner & Concurrency
+      N8N_RUNNERS_MAX_OLD_SPACE_SIZE: "2048"
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "40"
+
+      # Env-Vars in Expressions erlauben
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+
+      # Externe Module fuer Code Nodes
+      NODE_FUNCTION_ALLOW_EXTERNAL: apify-client,cheerio,puppeteer,puppeteer-core
+
+      # Puppeteer / Chromium
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+
+      TZ: Europe/Berlin
+
+      # --- Localweb Credentials ---
+      SUPABASE_GOOGLE_URL: ${SUPABASE_GOOGLE_URL}
+      SUPABASE_GOOGLE_KEY: ${SUPABASE_GOOGLE_KEY}
+      SUPABASE_LEADS_URL: ${SUPABASE_LEADS_URL}
+      SUPABASE_LEADS_KEY: ${SUPABASE_LEADS_KEY}
+      APIFY_API_TOKEN: ${APIFY_API_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      CLOSE_API_KEY: ${CLOSE_API_KEY}
+      DEMODESK_API_KEY: ${DEMODESK_API_KEY}
+      DEMODESK_API_KEY_BRANTAN: ${DEMODESK_API_KEY_BRANTAN}
+      DEMODESK_API_KEY_AMADEUS: ${DEMODESK_API_KEY_AMADEUS}
+      DEMODESK_API_KEY_LILIAN: ${DEMODESK_API_KEY_LILIAN}
+      DEMODESK_API_KEY_THOMAS: ${DEMODESK_API_KEY_THOMAS}
+      DEMODESK_API_KEY_PETER: ${DEMODESK_API_KEY_PETER}
+      GOOGLE_DRIVE_DEMODESK_FOLDER_ID: ${GOOGLE_DRIVE_DEMODESK_FOLDER_ID:-}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ../close-crm-sync/files:/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      <<: *default-logging
+
+volumes:
+  redis_data:
+  caddy_data:
+  caddy_config:

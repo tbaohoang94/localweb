@@ -1,0 +1,702 @@
+{
+  "id": "export-to-close",
+  "name": "06 - Google Maps Pipeline - Export to Close",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?close_export_status=is.null&or=(website.is.null,enrichment_status.eq.enriched)&select=id,name,category,address,city,postal_code,country,phone,website,rating,reviews_count,google_maps_url,website_summary,qualification_reason,im_contact_name,im_email,im_tel,search_string,neighborhood,fid,place_id,images_count,opening_hours,rank,claimed&limit=1000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "paginationCompleteWhen": "responseIsEmpty",
+              "maxRequests": 100,
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $pageCount * 1000 }}"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "id": "get-businesses",
+      "name": "Get Qualified Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        288
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "phone-check",
+              "leftValue": "={{ (() => { const p = ($json.im_tel || $json.phone || '').replace(/[^\\d+]/g, ''); return p.startsWith('+49') || (p.startsWith('0') && !p.startsWith('00') && p.length > 3); })() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-phone",
+      "name": "Has German Phone?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        560,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"close_export_status\": \"skipped\", \"close_exported_at\": {{ JSON.stringify($now.toISO()) }}}",
+        "options": {}
+      },
+      "id": "mark-no-phone",
+      "name": "Mark No Phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nconst lead = { name: item.name };\n\n// Standard Close fields\nif (item.google_maps_url) lead.url = item.google_maps_url;\nif (item.category) lead.description = item.category;\n\n// Address\nif (item.address || item.city) {\n  lead.addresses = [{\n    address_1: item.address || '',\n    city: item.city || '',\n    zipcode: item.postal_code || '',\n    country: item.country || ''\n  }];\n}\n\n// Contact\nconst contact = {};\nlet hasContact = false;\nif (item.im_contact_name) { contact.name = item.im_contact_name; hasContact = true; }\nif (item.im_email) { contact.emails = [{ email: item.im_email, type: 'office' }]; hasContact = true; }\nconst rawPhone = item.im_tel || item.phone;\nif (rawPhone) {\n  let phone = rawPhone.replace(/[^\\d+]/g, '');\n  if (phone.startsWith('0') && !phone.startsWith('00')) {\n    phone = '+49' + phone.substring(1);\n  }\n  contact.phones = [{ phone, type: 'office', country: 'DE' }];\n  hasContact = true;\n}\nif (hasContact) lead.contacts = [contact];\n\n// Custom fields\nif (item.neighborhood) lead['custom.cf_WqxzYoicb9iPGEDDGlhDhRGyF0C3hfld7XBTeJWCHYN'] = item.neighborhood;\nif (item.website) lead['custom.cf_wk3q60sZknPDh4y0nSVxjwS43GhU8dnag9ZUCp4XOM5'] = item.website;\nif (item.claimed != null) lead['custom.cf_LltE4PrzEkHVaAM8g2Pmkd5H0e228dMrqtgPTVqiY8a'] = String(item.claimed);\nif (item.rating != null) lead['custom.cf_KjKrFp7Z4aLUCSriXMyb2KmGd3xtSf20vYMYENFJ6QU'] = String(item.rating);\nif (item.reviews_count != null) lead['custom.cf_rVCzSp0nBTxDrQtcV88CyTW8oY3VEOg4LkLBVIvu7H7'] = String(item.reviews_count);\nif (item.images_count != null) lead['custom.cf_5I7vAJOIZYdFtzTiGdU64BlyehdpqY2evanCQF1Q2NE'] = String(item.images_count);\nif (item.opening_hours) lead['custom.cf_g3T7JycbYkMYUB64JFyHf323gxekGNh8l71F28d7fcb'] = typeof item.opening_hours === 'object' ? JSON.stringify(item.opening_hours) : String(item.opening_hours);\nif (item.search_string) lead['custom.cf_76qQclk0UKCZe8YaMnKIZLGrTvYsOUF8fm6Sy0oXD23'] = item.search_string;\nif (item.rank != null) lead['custom.cf_DDmJY8wBgDEHgArnJwpVkAu1JMkfqsrNcdOdLEnGDdX'] = item.rank;\nif (item.fid) lead['custom.cf_QclQHIL6kxHGNPRETHjtdxIHe5HyGsaO3KnMuaGS7i5'] = item.fid;\nif (item.website_summary) lead['custom.cf_FbpdBfPH2CVhLpxl8dZOHeyMPeCFSxPegRBuiEifaZ8'] = item.website_summary;\nif (item.place_id) lead['custom.cf_M65FQg0XBznlYw0r6xhEKQPrVmMPIJGYaHzUJS1sZMN'] = item.place_id;\n\nreturn [{ json: { businessId: item.id, businessName: item.name, lead } }];"
+      },
+      "id": "prepare-lead",
+      "name": "Prepare Close Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.close.com/api/v1/lead/?query=custom.cf_M65FQg0XBznlYw0r6xhEKQPrVmMPIJGYaHzUJS1sZMN%3A{{ encodeURIComponent('\"' + $('Prepare Close Lead').first().json.lead['custom.cf_M65FQg0XBznlYw0r6xhEKQPrVmMPIJGYaHzUJS1sZMN'] + '\"') }}&_fields=id&_limit=1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "id": "search-close",
+      "name": "Search Close Duplicate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        288
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "c1zqLlNCaOTBnrvH",
+          "name": "Close.io"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.data && $json.data.length ? $json.data.length : 0 }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-duplicate",
+      "name": "Is New Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.close.com/api/v1/lead/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare Close Lead').first().json.lead) }}",
+        "options": {}
+      },
+      "id": "create-lead",
+      "name": "Create Lead in Close",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        208
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "c1zqLlNCaOTBnrvH",
+          "name": "Close.io"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-response",
+      "name": "Check Response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1568,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Prepare Close Lead').first().json.businessId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"close_lead_id\": {{ JSON.stringify($json.id) }},\n  \"close_export_status\": \"exported\",\n  \"close_exported_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "save-close-id",
+      "name": "Save Close ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $('Prepare Close Lead').first().json.businessId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"close_export_status\": \"failed\",\n  \"close_exported_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "mark-failed",
+      "name": "Mark Export Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const existingLeadId = $('Search Close Duplicate').first().json.data[0].id;\n\nreturn [{\n  json: {\n    businessId: $('Prepare Close Lead').first().json.businessId,\n    close_lead_id: existingLeadId\n  }\n}];"
+      },
+      "id": "use-existing",
+      "name": "Use Existing Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $json.businessId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"close_lead_id\": {{ JSON.stringify($json.close_lead_id) }},\n  \"close_export_status\": \"duplicate\",\n  \"close_exported_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "save-duplicate",
+      "name": "Save Duplicate Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "await new Promise(r => setTimeout(r, 1000));\nreturn $input.all();"
+      },
+      "id": "wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const total = $('Get Qualified Businesses').all().length;\nreturn [{\n  json: {\n    workflow_name: '06-export-to-close',\n    execution_id: $execution.id,\n    items_count: total,\n    status: 'completed',\n    run_date: new Date().toISOString().split('T')[0]\n  }\n}];"
+      },
+      "id": "aggregate-log",
+      "name": "Aggregate Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/workflow_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "write-log",
+      "name": "Write Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1312,
+        512
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Qualified Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Qualified Businesses": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has German Phone?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has German Phone?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Close Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark No Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark No Phone": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Close Lead": {
+      "main": [
+        [
+          {
+            "node": "Search Close Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Close Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Is New Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Lead?": {
+      "main": [
+        [
+          {
+            "node": "Create Lead in Close",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Use Existing Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Lead in Close": {
+      "main": [
+        [
+          {
+            "node": "Check Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Response": {
+      "main": [
+        [
+          {
+            "node": "Save Close ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Export Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Existing Lead": {
+      "main": [
+        [
+          {
+            "node": "Save Duplicate Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Close ID": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Export Failed": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Duplicate Link": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Log": {
+      "main": [
+        [
+          {
+            "node": "Write Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "5Twy03WAFur7CZcD"
+  }
+}

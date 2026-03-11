@@ -1,0 +1,184 @@
+{
+  "name": "08 - Google Maps Pipeline - Health Check",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/cities?select=id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "check-supabase",
+      "name": "Check Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 200],
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:5678/healthz",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "check-n8n",
+      "name": "Check n8n",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 400],
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const supabaseResult = $('Check Supabase').first();\nconst n8nResult = $('Check n8n').first();\n\nconst checks = {\n  supabase: {\n    status: supabaseResult.json.statusCode >= 400 || supabaseResult.json.error ? 'error' : 'ok',\n    statusCode: supabaseResult.json.statusCode || 200\n  },\n  n8n: {\n    status: n8nResult.json.statusCode >= 400 || n8nResult.json.error ? 'error' : 'ok',\n    statusCode: n8nResult.json.statusCode || 200\n  }\n};\n\nconst hasError = checks.supabase.status === 'error' || checks.n8n.status === 'error';\n\nreturn [{\n  json: {\n    overallStatus: hasError ? 'unhealthy' : 'healthy',\n    checks,\n    hasError,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "evaluate-health",
+      "name": "Evaluate Health",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "health-check",
+              "leftValue": "={{ $json.hasError }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-unhealthy",
+      "name": "Unhealthy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [672, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/system_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source\": \"n8n\",\n  \"severity\": \"critical\",\n  \"workflow_name\": \"08 - Health Check\",\n  \"error_message\": \"Health Check fehlgeschlagen\",\n  \"metadata\": {{ JSON.stringify($json.checks) }}\n}",
+        "options": {}
+      },
+      "id": "log-unhealthy",
+      "name": "Log Unhealthy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [896, 200],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "toEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "subject": "=CRITICAL: Health Check fehlgeschlagen",
+        "emailFormat": "html",
+        "html": "=<div style=\"font-family: -apple-system, sans-serif; max-width: 600px;\">\n  <h2 style=\"color: #dc2626;\">Health Check fehlgeschlagen</h2>\n  <p>Zeitpunkt: {{ $now.setZone('Europe/Berlin').toFormat('dd.MM.yyyy HH:mm:ss') }}</p>\n  <pre style=\"background: #f3f4f6; padding: 12px; border-radius: 6px;\">{{ JSON.stringify($json.checks, null, 2) }}</pre>\n</div>",
+        "options": {}
+      },
+      "id": "send-critical-alert",
+      "name": "Send Critical Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1120, 200],
+      "credentials": {
+        "smtp": {
+          "id": "iBtNZwUPeBcnCSwj",
+          "name": "SMTP account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          { "node": "Check Supabase", "type": "main", "index": 0 },
+          { "node": "Check n8n", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Check Supabase": {
+      "main": [
+        [
+          { "node": "Evaluate Health", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Check n8n": {
+      "main": [
+        [
+          { "node": "Evaluate Health", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Evaluate Health": {
+      "main": [
+        [
+          { "node": "Unhealthy?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Unhealthy?": {
+      "main": [
+        [
+          { "node": "Log Unhealthy", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    },
+    "Log Unhealthy": {
+      "main": [
+        [
+          { "node": "Send Critical Alert", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

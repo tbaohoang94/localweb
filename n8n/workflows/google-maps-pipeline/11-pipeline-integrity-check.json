@@ -1,0 +1,186 @@
+{
+  "name": "11 - Pipeline Integrity Check (6h)",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/pipeline_errors?select=*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-errors",
+      "name": "Fetch Pipeline Errors",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 200],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/dead_letter_queue?status=eq.pending&select=id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Prefer", "value": "count=exact" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-dlq",
+      "name": "Fetch DLQ Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 400],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const errors = $('Fetch Pipeline Errors').all().map(i => i.json);\nconst dlqItems = $('Fetch DLQ Pending').all().map(i => i.json);\n\nconst stuckLocations = errors.filter(e => e.entity_type === 'location');\nconst failedBusinesses = errors.filter(e => e.entity_type === 'business');\nconst maxRetryItems = errors.filter(e => (e.retry_count || 0) >= 3);\n\nconst issues = [];\n\nif (stuckLocations.length > 0) {\n  issues.push(`${stuckLocations.length} Locations stuck/failed`);\n}\nif (failedBusinesses.length > 0) {\n  issues.push(`${failedBusinesses.length} Businesses failed`);\n}\nif (maxRetryItems.length > 0) {\n  issues.push(`${maxRetryItems.length} Items mit max retries erreicht`);\n}\nif (dlqItems.length > 0) {\n  issues.push(`${dlqItems.length} Items in Dead Letter Queue`);\n}\n\nconst hasIssues = issues.length > 0;\nconst severity = maxRetryItems.length > 5 ? 'critical' : hasIssues ? 'warning' : 'info';\n\nreturn [{\n  json: {\n    hasIssues,\n    severity,\n    issues,\n    stuckLocations: stuckLocations.length,\n    failedBusinesses: failedBusinesses.length,\n    maxRetryItems: maxRetryItems.length,\n    dlqPending: dlqItems.length,\n    summary: hasIssues ? issues.join(', ') : 'Pipeline gesund'\n  }\n}];"
+      },
+      "id": "evaluate",
+      "name": "Evaluate Integrity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/system_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source\": \"n8n\",\n  \"severity\": {{ JSON.stringify($json.severity) }},\n  \"workflow_name\": \"11 - Pipeline Integrity Check\",\n  \"error_message\": {{ JSON.stringify($json.summary) }},\n  \"metadata\": {{ JSON.stringify({ stuckLocations: $json.stuckLocations, failedBusinesses: $json.failedBusinesses, maxRetryItems: $json.maxRetryItems, dlqPending: $json.dlqPending }) }}\n}",
+        "options": {}
+      },
+      "id": "log-result",
+      "name": "Log Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-issues",
+              "leftValue": "={{ $json.hasIssues }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-issues",
+      "name": "Has Issues?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [896, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "toEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "subject": "=Pipeline Integrity: {{ $('Evaluate Integrity').first().json.summary }}",
+        "emailFormat": "html",
+        "html": "=<div style=\"font-family: -apple-system, sans-serif; max-width: 600px;\">\n  <h2>Pipeline Integrity Check</h2>\n  <p>Zeitpunkt: {{ $now.setZone('Europe/Berlin').toFormat('dd.MM.yyyy HH:mm') }}</p>\n  <ul>\n  {{ $('Evaluate Integrity').first().json.issues.map(i => '<li>' + i + '</li>').join('') }}\n  </ul>\n</div>",
+        "options": {}
+      },
+      "id": "send-alert",
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1120, 200],
+      "credentials": {
+        "smtp": {
+          "id": "iBtNZwUPeBcnCSwj",
+          "name": "SMTP account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every 6 Hours": {
+      "main": [
+        [
+          { "node": "Fetch Pipeline Errors", "type": "main", "index": 0 },
+          { "node": "Fetch DLQ Pending", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Pipeline Errors": {
+      "main": [
+        [
+          { "node": "Evaluate Integrity", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch DLQ Pending": {
+      "main": [
+        [
+          { "node": "Evaluate Integrity", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Evaluate Integrity": {
+      "main": [
+        [
+          { "node": "Log Result", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Log Result": {
+      "main": [
+        [
+          { "node": "Has Issues?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Has Issues?": {
+      "main": [
+        [
+          { "node": "Send Alert", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

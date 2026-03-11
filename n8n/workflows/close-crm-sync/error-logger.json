@@ -1,0 +1,92 @@
+{
+  "name": "08 - Close CRM Sync - Error Logger (Legacy)",
+  "nodes": [
+    {
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "extract-error",
+      "name": "Extract Error Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const error = $input.first().json;\n\nconst execution = error.execution || {};\nconst workflow = error.workflow || {};\nconst lastNode = execution.lastNodeExecuted || 'Unknown';\n\nlet errorMessage = 'Unknown error';\nlet inputData = '';\n\ntry {\n  if (execution.error?.message) {\n    errorMessage = execution.error.message;\n  } else if (typeof error.message === 'string') {\n    errorMessage = error.message;\n  }\n} catch (e) {\n  errorMessage = JSON.stringify(error).substring(0, 1000);\n}\n\ntry {\n  const nodeData = execution.data?.resultData?.runData?.[lastNode];\n  if (nodeData && nodeData[0]?.data?.main?.[0]?.[0]) {\n    inputData = JSON.stringify(nodeData[0].data.main[0][0].json).substring(0, 2000);\n  }\n} catch (e) {\n  inputData = 'Could not extract input data';\n}\n\nreturn [{\n  json: {\n    workflow_name: workflow.name || 'Unknown',\n    workflow_id: workflow.id || '',\n    node_name: lastNode,\n    error_message: errorMessage,\n    execution_id: execution.id || '',\n    timestamp: new Date().toISOString(),\n    severity: 'Error',\n    input_data: inputData\n  }\n}];"
+      }
+    },
+    {
+      "id": "write-error-log",
+      "name": "Write to Error Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appvsBWZlKAJC1VPY/tblqszg8jl0ZZM32K",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fields\": {\n    \"workflow_name\": {{ JSON.stringify($json.workflow_name) }},\n    \"workflow_id\": {{ JSON.stringify($json.workflow_id) }},\n    \"node_name\": {{ JSON.stringify($json.node_name) }},\n    \"error_message\": {{ JSON.stringify($json.error_message) }},\n    \"execution_id\": {{ JSON.stringify($json.execution_id) }},\n    \"timestamp\": {{ JSON.stringify($json.timestamp) }},\n    \"severity\": {{ JSON.stringify($json.severity) }},\n    \"input_data\": {{ JSON.stringify($json.input_data) }}\n  },\n  \"typecast\": true\n}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "airtable-header-auth",
+          "name": "Airtable API Key"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Error Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Error Data": {
+      "main": [
+        [
+          {
+            "node": "Write to Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "exMeC11q5D0Mww3f"
+}

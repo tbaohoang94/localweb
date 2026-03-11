@@ -1,0 +1,158 @@
+{
+  "id": "MtErFVL7B1ppqar6",
+  "name": "99 - Close CRM Sync - Test Sync",
+  "nodes": [
+    {
+      "id": "form-trigger-99",
+      "name": "Test Sync Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "formTitle": "Test Sync",
+        "formDescription": "Sub-Workflow einzeln testen. Entity und Since-Datum eingeben.",
+        "responseMode": "lastNode",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Entity",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "meetings"
+                  },
+                  {
+                    "option": "leads"
+                  },
+                  {
+                    "option": "calls"
+                  },
+                  {
+                    "option": "opportunities"
+                  },
+                  {
+                    "option": "users"
+                  },
+                  {
+                    "option": "activity_types"
+                  },
+                  {
+                    "option": "custom_fields"
+                  },
+                  {
+                    "option": "custom_activities"
+                  },
+                  {
+                    "option": "demodesk"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Since (ISO)",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "2026-02-17T00:00:00Z"
+            },
+            {
+              "fieldLabel": "Until (ISO, optional)",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "2026-02-18T00:00:00Z"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "map-entity-99",
+      "name": "Map Entity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst entity = item['Entity'];\nconst since = item['Since (ISO)'] || '';\nconst until = item['Until (ISO, optional)'] || '';\n\nconst map = {\n  users: 'XuPdrCJXWzWb5LOZ',\n  leads: 'LuuTFS5EC1mOcdb1',\n  activity_types: 'W549YA04HFFti2Wa',\n  custom_fields: 'Qs3XRfwzLEHsft25',\n  opportunities: 'gxncNWabbKl12Yyu',\n  calls: 'yTKEleR62nPoSjDU',\n  meetings: 'IlARmuyC2IJ1ciLd',\n  custom_activities: '6hVvL0XTQr4kMEQX',\n  demodesk: '1mtLiN4tCIM54t84'\n};\n\nconst workflowId = map[entity];\nif (!workflowId) throw new Error('Unknown entity: ' + entity);\n\nreturn [{ json: { entity, since, until, workflowId } }];"
+      }
+    },
+    {
+      "id": "exec-99",
+      "name": "Execute Sync",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $json.workflowId }}",
+          "mode": "id"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "result-99",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst mapData = $('Map Entity').first().json;\nconst entity = mapData.entity;\nreturn [{ json: {\n  formSubmittedText: 'Sync ' + entity + ' done! Status: ' + (result.status || 'unknown') + ', Records: ' + (result.records_synced || '?')\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Test Sync Form": {
+      "main": [
+        [
+          {
+            "node": "Map Entity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Entity": {
+      "main": [
+        [
+          {
+            "node": "Execute Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Sync": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

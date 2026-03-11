@@ -1,0 +1,259 @@
+{
+  "id": "j9OWBXm1AMH54Ieq",
+  "name": "05 - Google Maps Pipeline - CSV Export Email",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "triggerAtHour": 18 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 288]
+    },
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 496],
+      "webhookId": "test-wf05",
+      "parameters": {
+        "path": "test-wf05",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=in.(new,qualified,enriching)&select=search_string&limit=1000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "paginationCompleteWhen": "responseIsEmpty",
+              "maxRequests": 100,
+              "parameters": {
+                "parameters": [{ "name": "offset", "value": "={{ $pageCount * 1000 }}" }]
+              }
+            }
+          }
+        }
+      },
+      "id": "get-active-keywords",
+      "name": "Get Active Keywords",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 288],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst keywords = [...new Set(items.filter(i => i.search_string).map(i => i.search_string))];\nreturn [{ json: { activeKeywords: keywords, activeCount: keywords.length } }];"
+      },
+      "id": "extract-active-keywords",
+      "name": "Extract Active Keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 288]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.enriched&select=id,name,category,address,city,postal_code,country,phone,website,rating,reviews_count,google_maps_url,website_summary,qualification_reason,im_contact_name,im_email,im_tel,search_string,neighborhood,fid,place_id,images_count,opening_hours,rank,claimed&limit=1000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "paginationCompleteWhen": "responseIsEmpty",
+              "maxRequests": 100,
+              "parameters": {
+                "parameters": [{ "name": "offset", "value": "={{ $pageCount * 1000 }}" }]
+              }
+            }
+          }
+        }
+      },
+      "id": "get-businesses",
+      "name": "Get Enriched Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, 288],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keywords die noch aktive Items haben (new/qualified/enriching)\nconst activeKeywords = new Set($('Extract Active Keywords').first().json.activeKeywords);\n\n// Nur Businesses exportieren deren Keyword komplett verarbeitet ist\nconst allItems = $input.all().map(i => i.json).filter(r => r.id);\nconst items = allItems.filter(r => !activeKeywords.has(r.search_string));\n\nif (!items.length) return [{ json: { count: 0, skipped: allItems.length, activeKeywords: [...activeKeywords] } }];\n\nconst headers = [\n  'Company','Contact Name','Contact Email','Contact Phone','URL','Website URL',\n  'Description','Street','City','Zip','Country','Ai Website Summary','Bewertungen Durchschnitt',\n  'Bewertungen Anzahl','Stadtteil','Suchbegriff','Suchbegriff Ranking','Anzahl Fotos','Verifiziert',\n  'Öffnungszeiten','Places ID','Google ID','Qualification Reason'\n];\n\nfunction esc(val) {\n  if (val == null) return '';\n  const s = String(val);\n  if (s.includes(',') || s.includes('\"') || s.includes('\\n')) {\n    return '\"' + s.replace(/\"/g, '\"\"') + '\"';\n  }\n  return s;\n}\n\nconst rows = items.map(r => [\n  r.name, r.im_contact_name, r.im_email,\n  r.im_tel || r.phone,\n  r.google_maps_url, r.website, r.category,\n  r.address, r.city, r.postal_code, r.country,\n  r.website_summary, r.rating, r.reviews_count,\n  r.neighborhood, r.search_string, r.rank,\n  r.images_count, r.claimed,\n  typeof r.opening_hours === 'object' ? JSON.stringify(r.opening_hours) : r.opening_hours,\n  r.place_id, r.fid, r.qualification_reason\n].map(esc).join(','));\n\nconst csv = [headers.join(','), ...rows].join('\\n');\nconst ids = items.map(r => r.id);\nconst date = new Date().toISOString().slice(0, 10);\nconst keywords = [...new Set(items.map(r => r.search_string).filter(Boolean))].sort();\n\nreturn [{\n  json: { count: items.length, ids, date, keywords, skipped: allItems.length - items.length },\n  binary: {\n    csv: {\n      data: Buffer.from(csv, 'utf-8').toString('base64'),\n      mimeType: 'text/csv',\n      fileName: `close-leads-${date}.csv`\n    }\n  }\n}];"
+      },
+      "id": "build-csv",
+      "name": "Build CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [896, 288]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-items",
+      "name": "Has Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1120, 288]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ids = $('Build CSV').first().json.ids;\nconst chunkSize = 500;\nconst chunks = [];\nfor (let i = 0; i < ids.length; i += chunkSize) {\n  chunks.push(ids.slice(i, i + chunkSize));\n}\nreturn chunks.map(chunk => ({\n  json: { idFilter: `in.(${chunk.join(',')})` }\n}));"
+      },
+      "id": "chunk-ids",
+      "name": "Chunk IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1344, 192]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "loop-chunks",
+      "name": "Loop Chunks",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1568, 192]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id={{ $json.idFilter }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline_stage\": \"exported\"\n}",
+        "options": {}
+      },
+      "id": "mark-exported",
+      "name": "Mark Exported",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1792, 192],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "prepare-email",
+      "name": "Prepare Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2016, 400],
+      "parameters": {
+        "jsCode": "const csvData = $('Build CSV').first();\nreturn [{\n  json: { count: csvData.json.count, date: csvData.json.date, keywords: csvData.json.keywords },\n  binary: csvData.binary\n}];"
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "toEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "subject": "=Close.io Leads Export - {{ $json.date }} ({{ $json.count }} Leads)",
+        "emailFormat": "html",
+        "html": "=<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px;\">\n  <h2 style=\"color: #2563eb; margin-bottom: 16px;\">Lead Export</h2>\n  <p style=\"font-size: 14px; margin-bottom: 16px;\">{{ $json.count }} Leads bereit fuer Close.io Import.</p>\n  \n  <table style=\"width: 100%; border-collapse: collapse; font-size: 14px;\">\n    <tr style=\"border-bottom: 1px solid #e5e7eb;\">\n      <td style=\"padding: 8px 12px; font-weight: 600; color: #374151; width: 140px;\">Leads</td>\n      <td style=\"padding: 8px 12px;\">{{ $json.count }}</td>\n    </tr>\n    <tr style=\"border-bottom: 1px solid #e5e7eb;\">\n      <td style=\"padding: 8px 12px; font-weight: 600; color: #374151;\">Datum</td>\n      <td style=\"padding: 8px 12px;\">{{ $json.date }}</td>\n    </tr>\n    <tr>\n      <td style=\"padding: 8px 12px; font-weight: 600; color: #374151;\">Keywords</td>\n      <td style=\"padding: 8px 12px;\">{{ $json.keywords.join(', ') }}</td>\n    </tr>\n  </table>\n  \n  <p style=\"margin-top: 16px; font-size: 14px;\">CSV im Anhang. Bitte in Close.io unter Leads &gt; Import hochladen.</p>\n  <p style=\"color: #9ca3af; font-size: 11px; margin-top: 24px;\">Google Maps Lead Pipeline — CSV Export</p>\n</div>",
+        "options": { "attachments": "csv" }
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2240, 400],
+      "credentials": {
+        "smtp": {
+          "id": "iBtNZwUPeBcnCSwj",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Get Active Keywords", "type": "main", "index": 0 }]]
+    },
+    "Webhook Trigger": {
+      "main": [[{ "node": "Get Active Keywords", "type": "main", "index": 0 }]]
+    },
+    "Get Active Keywords": {
+      "main": [[{ "node": "Extract Active Keywords", "type": "main", "index": 0 }]]
+    },
+    "Extract Active Keywords": {
+      "main": [[{ "node": "Get Enriched Businesses", "type": "main", "index": 0 }]]
+    },
+    "Get Enriched Businesses": {
+      "main": [[{ "node": "Build CSV", "type": "main", "index": 0 }]]
+    },
+    "Build CSV": {
+      "main": [[{ "node": "Has Items?", "type": "main", "index": 0 }]]
+    },
+    "Has Items?": {
+      "main": [
+        [{ "node": "Chunk IDs", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Chunk IDs": {
+      "main": [[{ "node": "Loop Chunks", "type": "main", "index": 0 }]]
+    },
+    "Loop Chunks": {
+      "main": [
+        [{ "node": "Prepare Email", "type": "main", "index": 0 }],
+        [{ "node": "Mark Exported", "type": "main", "index": 0 }]
+      ]
+    },
+    "Mark Exported": {
+      "main": [[{ "node": "Loop Chunks", "type": "main", "index": 0 }]]
+    },
+    "Prepare Email": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "75nGTzEeTlBQmlys",
+    "executionTimeout": 600,
+    "maxConcurrencyLevel": 1
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "id": "yg2xtQQAUaiLkLXi",
+  "name": "02 - Close CRM Sync - Add New User",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "d6b56e10-f670-47d1-83cc-032c6b734003",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        -304,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "chat-trigger-user",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -304,
+        2064
+      ],
+      "webhookId": "add-user-test"
+    },
+    {
+      "parameters": {
+        "url": "https://api.close.com/api/v1/user/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -32,
+        1808
+      ],
+      "id": "4df32393-5aac-4cbd-aba0-4ac3c50b7f11",
+      "name": "GetUser",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "c1zqLlNCaOTBnrvH",
+          "name": "Close.io"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten paginated Close.io user response\nconst pages = $items(\"GetUser\");\nlet allItems = [];\n\nfor (const page of pages) {\n  if (page.json.data && Array.isArray(page.json.data)) {\n    allItems.push(...page.json.data);\n  }\n}\n\n// Map to Supabase close_users columns\nreturn allItems.map(item => ({\n  json: {\n    close_id: item.id,\n    name: `${item.first_name || ''} ${item.last_name || ''}`.trim(),\n    vorname: item.first_name || '',\n    nachname: item.last_name || '',\n    email: item.email || '',\n    role: item.role || '',\n    aktiv: !item.date_deactivated\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        1808
+      ],
+      "id": "12027a68-0c23-4fa4-9ded-798dcbe38ca3",
+      "name": "Transform for Supabase"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/close_users?on_conflict=close_id",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        416,
+        1808
+      ],
+      "id": "da5309fd-5071-4120-a193-04cf7272add9",
+      "name": "Upsert Users to Supabase",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUPABASE_HTTP_CREDENTIAL_ID",
+          "name": "Supabase API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "GetUser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "GetUser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetUser": {
+      "main": [
+        [
+          {
+            "node": "Transform for Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform for Supabase": {
+      "main": [
+        [
+          {
+            "node": "Upsert Users to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

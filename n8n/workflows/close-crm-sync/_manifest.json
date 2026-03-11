@@ -1,0 +1,265 @@
+{
+  "project": "Close CRM Sync",
+  "namingConvention": "Index - Projektname - Workflow Name",
+  "workflows": {
+    "full-sync": {
+      "id": "1M30qQhxTkyqTd8g",
+      "name": "00 - Close CRM Sync - Full Sync",
+      "file": "00-full-sync.json",
+      "status": "inactive",
+      "triggers": ["manual"],
+      "calls": ["sync-users", "sync-leads", "sync-activity-types", "sync-custom-fields", "sync-opportunities", "sync-calls", "sync-meetings", "sync-custom-activities", "sync-demodesk-transcripts"]
+    },
+    "first-import-resume": {
+      "id": "Kna9hsuBbSjWt8Fk",
+      "name": "00 - Close CRM Sync - First Import Resume",
+      "file": "00-first-import-resume.json",
+      "status": "inactive",
+      "triggers": ["manual"],
+      "calls": ["sync-calls", "sync-meetings", "sync-custom-activities", "sync-demodesk-transcripts"]
+    },
+    "orchestrator": {
+      "id": "dyTx5AbwsNO5WGaL",
+      "name": "01 - Close CRM Sync - Orchestrator",
+      "file": "01-orchestrator.json",
+      "status": "inactive",
+      "triggers": ["manual"],
+      "calls": ["add-new-user", "get-custom-activities", "get-opportunities"]
+    },
+    "sync-users": {
+      "id": "XuPdrCJXWzWb5LOZ",
+      "name": "01 - Close CRM Sync - Sync Users",
+      "file": "01-sync-users.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "add-new-user": {
+      "id": "yg2xtQQAUaiLkLXi",
+      "name": "02 - Close CRM Sync - Add New User",
+      "file": "02-add-new-user.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-leads": {
+      "id": "LuuTFS5EC1mOcdb1",
+      "name": "02 - Close CRM Sync - Sync Leads",
+      "file": "02-sync-leads.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "get-custom-activities": {
+      "id": "NAo1zIkjNwYMbHmv",
+      "name": "03 - Close CRM Sync - Get Custom Activities",
+      "file": "03-get-custom-activities.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-activity-types": {
+      "id": "W549YA04HFFti2Wa",
+      "name": "03 - Close CRM Sync - Sync Activity Types",
+      "file": "03-sync-activity-types.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "get-opportunities": {
+      "id": "cQDTdw5U0TRY28Nl",
+      "name": "04 - Close CRM Sync - Get Opportunities",
+      "file": "04-get-opportunitys.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-opportunities": {
+      "id": "gxncNWabbKl12Yyu",
+      "name": "04 - Close CRM Sync - Sync Opportunities",
+      "file": "04-sync-opportunities.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "get-settingcalls": {
+      "id": "RIziEv7wAifHBU47",
+      "name": "05 - Close CRM Sync - Get Setting Calls",
+      "file": "05-get-settingcalls.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-calls": {
+      "id": "yTKEleR62nPoSjDU",
+      "name": "05 - Close CRM Sync - Sync Calls",
+      "file": "05-sync-calls.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "get-closingcalls": {
+      "id": "LxpJz2z2pBYBhBhy",
+      "name": "06 - Close CRM Sync - Get Closing Calls",
+      "file": "06-get-closingcalls.json",
+      "status": "active",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-meetings": {
+      "id": "IlARmuyC2IJ1ciLd",
+      "name": "06 - Close CRM Sync - Sync Meetings",
+      "file": "06-sync-meetings.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-custom-activities": {
+      "id": "6hVvL0XTQr4kMEQX",
+      "name": "07 - Close CRM Sync - Sync Custom Activities",
+      "file": "07-sync-custom-activities.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "error-logger": {
+      "id": "OrTCUp8ufHjtmIcm",
+      "name": "08 - Close CRM Sync - Error Logger",
+      "file": "08-error-logger.json",
+      "status": "inactive",
+      "triggers": ["error"],
+      "calls": []
+    },
+    "sync-custom-fields": {
+      "id": "Qs3XRfwzLEHsft25",
+      "name": "09 - Close CRM Sync - Sync Custom Fields",
+      "file": "09-sync-custom-fields.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sync-demodesk-transcripts": {
+      "id": "1mtLiN4tCIM54t84",
+      "name": "10 - Close CRM Sync - Sync Demodesk Transcripts",
+      "file": "10-sync-demodesk-transcripts.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": [],
+      "note": "Backfill: Alle vergangenen Demodesk-Recordings → Google Drive + Supabase"
+    },
+    "classify-and-transcribe": {
+      "id": "lVffwYj5EbYaERep",
+      "name": "11 - Close CRM Sync - Classify and Transcribe",
+      "file": "11-classify-and-transcribe.json",
+      "status": "inactive",
+      "triggers": ["webhook"],
+      "calls": []
+    },
+    "demodesk-recording-webhook": {
+      "id": "demodesk-rec-webhook-12",
+      "name": "12 - Close CRM Sync - Demodesk Recording Webhook",
+      "file": "12-demodesk-recording-webhook.json",
+      "status": "inactive",
+      "triggers": ["webhook"],
+      "calls": [],
+      "note": "Webhook: Neue Demodesk-Recordings → Google Drive + Supabase. Webhook muss bei Demodesk-Support aktiviert werden."
+    },
+    "webhook-dispatcher": {
+      "name": "20 - Close CRM Sync - Webhook Dispatcher",
+      "file": "20-webhook-dispatcher.json",
+      "status": "inactive",
+      "triggers": ["webhook"],
+      "calls": ["eg-vereinbart", "eg-noshow", "eg-stattgefunden", "sg-stattgefunden", "sg-noshow", "angebot-erstellen", "kunde-gewonnen", "kunde-verloren"]
+    },
+    "eg-vereinbart": {
+      "name": "21 - Close CRM Sync - EG Vereinbart",
+      "file": "21-eg-vereinbart.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "eg-noshow": {
+      "name": "22 - Close CRM Sync - EG NoShow",
+      "file": "22-eg-noshow.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "eg-stattgefunden": {
+      "name": "23 - Close CRM Sync - EG Stattgefunden",
+      "file": "23-eg-stattgefunden.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sg-stattgefunden": {
+      "name": "24 - Close CRM Sync - SG Stattgefunden",
+      "file": "24-sg-stattgefunden.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "sg-noshow": {
+      "name": "25 - Close CRM Sync - SG NoShow",
+      "file": "25-sg-noshow.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "angebot-erstellen": {
+      "name": "26 - Close CRM Sync - Angebot Erstellen",
+      "file": "26-angebot-erstellen.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "kunde-gewonnen": {
+      "name": "27 - Close CRM Sync - Kunde Gewonnen",
+      "file": "27-kunde-gewonnen.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "kunde-verloren": {
+      "name": "28 - Close CRM Sync - Kunde Verloren",
+      "file": "28-kunde-verloren.json",
+      "status": "inactive",
+      "triggers": ["execute-workflow"],
+      "calls": []
+    },
+    "soft-delete-custom-activity": {
+      "id": "zrcXOJh3bSgp9mk3",
+      "name": "29 - Close CRM Sync - Soft Delete Custom Activity",
+      "file": "29-soft-delete-custom-activity.json",
+      "status": "active",
+      "triggers": ["webhook"],
+      "calls": [],
+      "note": "Close.io Webhook: activity.custom_activity.deleted → Soft-Delete in Supabase (deleted_at). Webhook-ID: whsub_019gwT5i7yYzkcFmY0KY2k"
+    },
+    "test-close-leads": {
+      "name": "98 - Close CRM Sync - Test Close Leads",
+      "file": "98-test-close-leads.json",
+      "status": "inactive",
+      "triggers": ["manual"],
+      "calls": []
+    },
+    "test-sync": {
+      "name": "99 - Close CRM Sync - Test Sync",
+      "file": "99-test-sync.json",
+      "status": "inactive",
+      "triggers": ["manual"],
+      "calls": []
+    }
+  },
+  "dependencies": {
+    "full-sync": ["sync-users", "sync-leads", "sync-activity-types", "sync-custom-fields", "sync-opportunities", "sync-calls", "sync-meetings", "sync-custom-activities", "sync-demodesk-transcripts"],
+    "first-import-resume": ["sync-calls", "sync-meetings", "sync-custom-activities", "sync-demodesk-transcripts"],
+    "orchestrator": ["add-new-user", "get-custom-activities", "get-opportunities"],
+    "webhook-dispatcher": ["eg-vereinbart", "eg-noshow", "eg-stattgefunden", "sg-stattgefunden", "sg-noshow", "angebot-erstellen", "kunde-gewonnen", "kunde-verloren"]
+  },
+  "legacy": [
+    "error-logger.json",
+    "sync-activity-types-supabase.json",
+    "07-sync-activity-types.json"
+  ]
+}

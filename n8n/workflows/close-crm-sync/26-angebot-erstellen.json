@@ -1,0 +1,372 @@
+{
+  "name": "26 - Close CRM Sync - Angebot Erstellen",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "id": "2a9d63c6-fd1b-411e-85a1-49ada7855b0e"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.close.com/api/v1/user/{{ $json.userId }}/",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "GET Closer Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "id": "d7a66210-8b9f-4eab-849d-97c66f544254"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Execute Workflow Trigger').first().json;\nconst user = $('GET Closer Info').first().json;\nconst cf = input.customFields || {};\n\nconst closerEmail = user.email || '';\nconst closerFirstName = user.first_name || '';\nconst closerLastName = user.last_name || '';\nconst closerFullName = (closerFirstName + ' ' + closerLastName).trim();\n\nconst produkt = cf['custom.cf_mfvkzeuvTTCslhGkBxcitD5j2bL0CgPwOjv4VfzKbm1'] || '';\nconst firmenName = cf['custom.cf_Q2cnwV5LpPO1NvlgA6OU1NGn5NOCO8lJmurLL7KAkoj'] || '';\nconst strasse = cf['custom.cf_u5YCH2sXANUtIYnv3FPfg3aJ4PLOdaW1PcZzPBF4Phl'] || '';\nconst plzOrt = cf['custom.cf_cUAqhLqYQXOv7MNgx8l2vqnWy8IQJjbLin8gk7PFkAg'] || '';\nconst kundenEmail = cf['custom.cf_9SfAdyRwGi8uTBMoLOc2ZxrJdgsIjALd3l6RXSRFdIE'] || '';\nconst einrichtungsgebuehr = cf['custom.cf_PFe9UdXNxK2X6E1gT7NAj2zKvICmC2K3M9Fc6uydSTu'] || '';\nconst laufzeit = cf['custom.cf_WH8sILS0Ol8gDhMhURn9cLR38iMT2laR77jHGSLSgmU'] || '';\nconst sondervereinbarung = cf['custom.cf_tSj5Q2QjLyeVvXjJQqEQ5cFKNAF3pDgl9pbGcoUGb79'] || '';\n\nconst TEMPLATE_MAP = {\n  'Firmenprofil Premium': 378486,\n  'Firmenprofil Starter': 377939\n};\nconst templateId = TEMPLATE_MAP[produkt];\n\nif (!templateId) {\n  throw new Error('Unbekanntes Produkt: ' + produkt + '. Erlaubt: Firmenprofil Premium, Firmenprofil Starter.');\n}\n\n// Email-Validierung\nconst isValidEmail = (e) => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(e);\n\nif (!isValidEmail(closerEmail)) {\n  throw new Error('Closer Email ungueltig: ' + closerEmail);\n}\n\nif (!isValidEmail(kundenEmail)) {\n  throw new Error('Kunden Email ungueltig: \"' + kundenEmail + '\". Bitte im Lead Custom Field pflegen.');\n}\n\nconst now = new Date();\nconst todayFormatted = String(now.getDate()).padStart(2, '0') + '.' + String(now.getMonth() + 1).padStart(2, '0') + '.' + now.getFullYear();\n\nconst einrichtungsgebuehrNumber = parseFloat(String(einrichtungsgebuehr).replace(',', '.')) || 0;\n\nreturn [{\n  json: {\n    leadId: input.leadId,\n    templateId,\n    closerEmail,\n    closerFullName,\n    kundenEmail,\n    firmenName,\n    strasse,\n    plzOrt,\n    laufzeit,\n    sondervereinbarung,\n    einrichtungsgebuehr: einrichtungsgebuehrNumber,\n    todayFormatted\n  }\n}];"
+      },
+      "name": "Prepare DocuSeal Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "id": "d21847f0-4e8a-4689-8be1-0aa35cbcf853"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.docuseal.eu/submissions",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "={{ $env.DOCUSEAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template_id: $json.templateId, send_email: true, bcc_completed: $json.closerEmail + ',' + $json.kundenEmail, submitters: [{ email: $json.closerEmail, role: 'First Party', values: { CloserName: $json.closerFullName, CloserEmail: 'auftrag@localweb.de', Laufzeit: $json.laufzeit, Sondervereinbarung: $json.sondervereinbarung, StadtDatumAuftragnehmer: 'Grünwald, den ' + $json.todayFormatted } }, { email: $json.kundenEmail, role: 'Second Party', values: { KundenName: $json.firmenName, KundenStrasse: $json.strasse, KundenStadt: $json.plzOrt, StadtDatumAuftraggeber: '' } }] }) }}",
+        "options": {}
+      },
+      "name": "Create DocuSeal Submission",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "id": "9907669e-9b6e-4deb-afdd-247f1a886a8d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('Create DocuSeal Submission').all();\nconst prepare = $('Prepare DocuSeal Data').first().json;\n\n// DocuSeal gibt ein Array von Submittern zurueck, n8n macht daraus mehrere Items\nconst submitters = items.map(i => i.json);\n\nlet recipient1Url = '';\nlet recipient2Url = '';\n\nfor (const s of submitters) {\n  const role = (s.role || '').toLowerCase();\n  const url = s.embed_src || s.slug || '';\n  if (role === 'first party' || role.includes('first')) {\n    recipient1Url = url;\n  } else if (role === 'second party' || role.includes('second')) {\n    recipient2Url = url;\n  }\n}\n\nreturn [{\n  json: {\n    leadId: prepare.leadId,\n    recipient1Url,\n    recipient2Url,\n    laufzeit: prepare.laufzeit,\n    einrichtungsgebuehr: prepare.einrichtungsgebuehr\n  }\n}];"
+      },
+      "name": "Parse DocuSeal Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "id": "9111039c-0f4c-4eb7-8233-a1568d446fb4"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/lead/{{ $json.leadId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ 'custom.cf_8x25bJXLGwY6fi5QUH3cPN4fDgFWAnUqsAfDM8sy8QF': $json.recipient1Url || null, 'custom.cf_7HJAEPWEDZRSXCYO77ISvjtJ38uMhSfSx7YrY5vjDyo': $json.recipient2Url || null }) }}",
+        "options": {}
+      },
+      "name": "Update Lead with Contract URLs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "id": "c05a0184-5d99-485b-b149-744af2122104"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.close.com/api/v1/opportunity/?lead_id={{ $('Parse DocuSeal Response').first().json.leadId }}&status_type=active&_limit=1&_order_by=-date_created",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "GET Active Opportunity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "id": "009d84b5-f4bb-4b67-aa98-9864df8583e6"
+    },
+    {
+      "parameters": {
+        "jsCode": "const oppResponse = $('GET Active Opportunity').first().json;\nconst prev = $('Parse DocuSeal Response').first().json;\nconst opportunities = oppResponse.data || [];\n\nif (opportunities.length === 0) {\n  return [];\n}\n\nconst opp = opportunities[0];\n\nreturn [{\n  json: {\n    oppId: opp.id,\n    laufzeit: prev.laufzeit,\n    einrichtungsgebuehr: prev.einrichtungsgebuehr,\n    recipient2Url: prev.recipient2Url\n  }\n}];"
+      },
+      "name": "Check Opportunity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        300
+      ],
+      "id": "aefa105f-cc94-457e-84b1-9c9b8e41748a"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/opportunity/{{ $json.oppId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status_id: 'stat_9RpuVOlozwXRQBM2dslIjXxZ0u8clBefcN3CpqLtWtF', 'custom.cf_HzGEkxy4HPF03ZyoIREA1nqdwkcU88ZVuYzukW3Vxz5': $json.einrichtungsgebuehr, 'custom.cf_iansZUWRLsuekI5ZbgZL6EjoqrAMwItKxYz2GRgoQCL': $json.laufzeit, 'custom.cf_aMWs0R4RzPkj7VU9qAdLdXR2BKcuHfFPNCu0LaMfhwC': $json.recipient2Url || null }) }}",
+        "options": {}
+      },
+      "name": "Update Opportunity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "id": "3fd5695f-a775-4286-b6ae-c9318e5a1bd2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_26_angebot_erstellen', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to update opportunity').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "name": "Log Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        500
+      ],
+      "continueOnFail": true,
+      "id": "a04fab9e-a1cc-4c5a-a465-ebf389bcd21a"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "GET Closer Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Closer Info": {
+      "main": [
+        [
+          {
+            "node": "Prepare DocuSeal Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare DocuSeal Data": {
+      "main": [
+        [
+          {
+            "node": "Create DocuSeal Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create DocuSeal Submission": {
+      "main": [
+        [
+          {
+            "node": "Parse DocuSeal Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse DocuSeal Response": {
+      "main": [
+        [
+          {
+            "node": "Update Lead with Contract URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead with Contract URLs": {
+      "main": [
+        [
+          {
+            "node": "GET Active Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Active Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Check Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Update Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Opportunity": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "y5PB6EFfeKYeLxqp",
+    "callerPolicy": "any",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "tags": []
+}

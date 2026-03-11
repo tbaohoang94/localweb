@@ -1,0 +1,185 @@
+{
+  "id": "branchen-lead-scoring-01",
+  "name": "Branchen Lead Scoring (Google Sheets + OpenAI)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook - Start",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "branchen-scoring",
+      "parameters": {
+        "path": "branchen-scoring",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "read-sheets",
+      "name": "Google Sheets - Branchen lesen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [220, 300],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gid=0"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "9mFvyk8dNaRxYQwA",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "id": "filter-unscored",
+      "name": "Nur ohne Score",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [440, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.gesamt_score || '' }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "openai-scoring",
+      "name": "OpenAI - Lead Score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\": \"gpt-4o-mini\", \"temperature\": 0.2, \"max_tokens\": 200, \"messages\": [{\"role\": \"user\", \"content\": \"Du bist ein Lead-Scoring-System für eine Local SEO Agentur in Deutschland (Localweb). Deine Aufgabe ist es, eine Google-Branche für Coldcalling-Kampagnen zu bewerten.\\n\\nBewerte die übergebene Branche anhand dieser 4 Kriterien (Score jeweils 0–10):\\n\\n1. neukunden_score (Gewicht 4/5)\\n   Wie stark ist der Neukundenbedarf? Leidet die Branche unter Auslastungsschwankungen oder saisonaler Nachfrage? Betriebe ohne aktives Akquiseproblem erhalten 0–3.\\n\\n2. erreichbarkeit_score (Gewicht 4/5)\\n   Wie gut ist der Inhaber / Entscheider telefonisch erreichbar? Branchen mit Empfang, Arzthelferinnen oder reiner Online-Präsenz erhalten niedrige Scores.\\n\\n3. inhaberquote_score (Gewicht 3/5)\\n   Wie hoch ist der Anteil deutschsprachiger Inhaber in dieser Branche in Deutschland? Branchen mit überwiegend nicht-deutschsprachigen Inhabern (z.B. Döner-Imbisse, viele Nagelstudios, Shisha-Bars) erhalten 0–3.\\n\\n4. maps_wettbewerb_score (Gewicht 3/5)\\n   Wie hoch ist der Wettbewerbsdruck auf Google Maps? Viele Anbieter + schlechte Durchschnittsbewertungen = hoher Score. Monopol oder kaum lokale Suche = niedriger Score.\\n\\nGesamtscore-Berechnung (gewichteter Durchschnitt, gerundet auf 1 Dezimalstelle):\\ngesamt_score = (\\n  neukunden_score × 4 +\\n  erreichbarkeit_score × 4 +\\n  inhaberquote_score × 3 +\\n  maps_wettbewerb_score × 3\\n) / 14\\n\\nWICHTIG: Antworte ausschließlich mit validem JSON. Kein Text, keine Erklärung, keine Markdown-Blöcke davor oder danach.\\n\\nFormat:\\n{\\\"branche\\\": \\\"<exakter Name der Branche>\\\", \\\"neukunden_score\\\": X, \\\"erreichbarkeit_score\\\": X, \\\"inhaberquote_score\\\": X, \\\"maps_wettbewerb_score\\\": X, \\\"gesamt_score\\\": X.X}\\n\\nBranche: {{ $json.branche }}\"}]}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 10,
+              "batchInterval": 2000
+            }
+          }
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "parse-json",
+      "name": "JSON parsen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const responseText = item.json.choices?.[0]?.message?.content || '';\n  const cleanText = responseText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  \n  let scores;\n  try {\n    scores = JSON.parse(cleanText);\n  } catch (e) {\n    const match = cleanText.match(/\\{[\\s\\S]*?\\}/);\n    if (match) {\n      scores = JSON.parse(match[0]);\n    } else {\n      scores = { branche: 'FEHLER', neukunden_score: 0, erreichbarkeit_score: 0, inhaberquote_score: 0, maps_wettbewerb_score: 0 };\n    }\n  }\n  \n  const n = Number(scores.neukunden_score) || 0;\n  const e = Number(scores.erreichbarkeit_score) || 0;\n  const i = Number(scores.inhaberquote_score) || 0;\n  const m = Number(scores.maps_wettbewerb_score) || 0;\n  const gesamt = Math.round(((n*4 + e*4 + i*3 + m*3) / 14) * 10) / 10;\n  \n  results.push({\n    json: {\n      branche: scores.branche || '',\n      neukunden_score: n,\n      erreichbarkeit_score: e,\n      inhaberquote_score: i,\n      maps_wettbewerb_score: m,\n      gesamt_score: gesamt\n    }\n  });\n}\n\nreturn results;"
+      }
+    },
+    {
+      "id": "write-sheets",
+      "name": "Google Sheets - Scores schreiben",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1100, 300],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "branche": "={{ $json.branche }}",
+            "neukunden_score": "={{ $json.neukunden_score }}",
+            "erreichbarkeit_score": "={{ $json.erreichbarkeit_score }}",
+            "inhaberquote_score": "={{ $json.inhaberquote_score }}",
+            "maps_wettbewerb_score": "={{ $json.maps_wettbewerb_score }}",
+            "gesamt_score": "={{ $json.gesamt_score }}"
+          }
+        },
+        "matchingColumns": ["branche"],
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "9mFvyk8dNaRxYQwA",
+          "name": "Google Sheets account 2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Start": {
+      "main": [
+        [{ "node": "Google Sheets - Branchen lesen", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Sheets - Branchen lesen": {
+      "main": [
+        [{ "node": "Nur ohne Score", "type": "main", "index": 0 }]
+      ]
+    },
+    "Nur ohne Score": {
+      "main": [
+        [{ "node": "OpenAI - Lead Score", "type": "main", "index": 0 }]
+      ]
+    },
+    "OpenAI - Lead Score": {
+      "main": [
+        [{ "node": "JSON parsen", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "JSON parsen": {
+      "main": [
+        [{ "node": "Google Sheets - Scores schreiben", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 3600
+  },
+  "tags": [
+    { "name": "einmalig" },
+    { "name": "lead-scoring" }
+  ]
+}

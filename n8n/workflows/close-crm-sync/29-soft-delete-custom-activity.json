@@ -1,0 +1,307 @@
+{
+  "updatedAt": "2026-03-03T03:55:59.797Z",
+  "createdAt": "2026-03-03T03:51:26.518Z",
+  "id": "zrcXOJh3bSgp9mk3",
+  "name": "29 - Close CRM Sync - Soft Delete Custom Activity",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "close-activity-delete",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "name": "Webhook",
+      "id": "8915d136-8cfd-40f2-9367-c6013b4899e9",
+      "webhookId": "b31f8820-82f0-4539-b9c0-a370d35d94ad"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Close Activity ID aus dem Webhook-Payload extrahieren\nconst body = $json.body || $json;\nconst event = body.event || body;\nconst data = event.data || event;\nconst action = event.action || '';\n\nconst activityId = data.id;\n\nif (!activityId) {\n  throw new Error('Keine activity ID im Payload gefunden');\n}\n\nreturn [{\n  json: {\n    close_activity_id: activityId,\n    action: action,\n    lead_id: data.lead_id || null,\n    event_timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "name": "Extract Activity ID",
+      "id": "37cf76c1-55b3-418e-914e-75d6f9f202e2"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/custom_activities?close_activity_id=eq.{{ $json.close_activity_id }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"deleted_at\": \"{{ $json.event_timestamp }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "name": "Soft Delete in Supabase",
+      "continueOnFail": true,
+      "id": "56091b50-55bd-4080-9bc9-491dea6c7cb1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ergebnis pruefen und loggen\nconst response = $json;\nconst input = $('Extract Activity ID').first().json;\nconst activityId = input.close_activity_id;\n\n// Pruefen ob Update erfolgreich war\nif (Array.isArray(response) && response.length > 0) {\n  return [{\n    json: {\n      status: 'deleted',\n      close_activity_id: activityId,\n      deleted_at: response[0].deleted_at,\n      message: `Activity ${activityId} als geloescht markiert`\n    }\n  }];\n}\n\n// Kein Treffer - Activity war nicht in Supabase\nreturn [{\n  json: {\n    status: 'not_found',\n    close_activity_id: activityId,\n    message: `Activity ${activityId} nicht in Supabase gefunden (evtl. noch nicht synchronisiert)`\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "name": "Log Result",
+      "id": "d9b00a9b-52c1-46b8-8cfb-9f8c089c25ed"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Activity ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Activity ID": {
+      "main": [
+        [
+          {
+            "node": "Soft Delete in Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Soft Delete in Supabase": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "any",
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "7a3cf7db-9bf8-4bef-9691-ba30ae03fca4",
+  "activeVersionId": "7a3cf7db-9bf8-4bef-9691-ba30ae03fca4",
+  "versionCounter": 10,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-03T03:51:26.518Z",
+      "createdAt": "2026-03-03T03:51:26.518Z",
+      "role": "workflow:owner",
+      "workflowId": "zrcXOJh3bSgp9mk3",
+      "projectId": "YG5fVtRt8hn2cwEB",
+      "project": {
+        "updatedAt": "2026-03-01T06:51:05.235Z",
+        "createdAt": "2026-03-01T06:50:09.859Z",
+        "id": "YG5fVtRt8hn2cwEB",
+        "name": "Bao Hoang <tbaohoang94@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "9e139d1a-ef15-4fdb-9d63-f4a4bb330c94"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-03-03T03:55:59.800Z",
+    "createdAt": "2026-03-03T03:55:59.800Z",
+    "versionId": "7a3cf7db-9bf8-4bef-9691-ba30ae03fca4",
+    "workflowId": "zrcXOJh3bSgp9mk3",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "close-activity-delete",
+          "responseMode": "onReceived",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          240,
+          300
+        ],
+        "name": "Webhook",
+        "id": "8915d136-8cfd-40f2-9367-c6013b4899e9",
+        "webhookId": "b31f8820-82f0-4539-b9c0-a370d35d94ad"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Close Activity ID aus dem Webhook-Payload extrahieren\nconst body = $json.body || $json;\nconst event = body.event || body;\nconst data = event.data || event;\nconst action = event.action || '';\n\nconst activityId = data.id;\n\nif (!activityId) {\n  throw new Error('Keine activity ID im Payload gefunden');\n}\n\nreturn [{\n  json: {\n    close_activity_id: activityId,\n    action: action,\n    lead_id: data.lead_id || null,\n    event_timestamp: new Date().toISOString()\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          460,
+          300
+        ],
+        "name": "Extract Activity ID",
+        "id": "37cf76c1-55b3-418e-914e-75d6f9f202e2"
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/custom_activities?close_activity_id=eq.{{ $json.close_activity_id }}",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=representation"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\"deleted_at\": \"{{ $json.event_timestamp }}\"}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          680,
+          300
+        ],
+        "name": "Soft Delete in Supabase",
+        "continueOnFail": true,
+        "id": "56091b50-55bd-4080-9bc9-491dea6c7cb1"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Ergebnis pruefen und loggen\nconst response = $json;\nconst input = $('Extract Activity ID').first().json;\nconst activityId = input.close_activity_id;\n\n// Pruefen ob Update erfolgreich war\nif (Array.isArray(response) && response.length > 0) {\n  return [{\n    json: {\n      status: 'deleted',\n      close_activity_id: activityId,\n      deleted_at: response[0].deleted_at,\n      message: `Activity ${activityId} als geloescht markiert`\n    }\n  }];\n}\n\n// Kein Treffer - Activity war nicht in Supabase\nreturn [{\n  json: {\n    status: 'not_found',\n    close_activity_id: activityId,\n    message: `Activity ${activityId} nicht in Supabase gefunden (evtl. noch nicht synchronisiert)`\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          900,
+          300
+        ],
+        "name": "Log Result",
+        "id": "d9b00a9b-52c1-46b8-8cfb-9f8c089c25ed"
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Extract Activity ID",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extract Activity ID": {
+        "main": [
+          [
+            {
+              "node": "Soft Delete in Supabase",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Soft Delete in Supabase": {
+        "main": [
+          [
+            {
+              "node": "Log Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Bao Hoang",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-03-03T03:55:59.852Z",
+        "id": 169,
+        "workflowId": "zrcXOJh3bSgp9mk3",
+        "versionId": "7a3cf7db-9bf8-4bef-9691-ba30ae03fca4",
+        "event": "activated",
+        "userId": "9e139d1a-ef15-4fdb-9d63-f4a4bb330c94"
+      }
+    ]
+  }
+}

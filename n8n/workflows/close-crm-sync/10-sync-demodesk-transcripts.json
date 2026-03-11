@@ -1,0 +1,560 @@
+{
+  "id": "1mtLiN4tCIM54t84",
+  "name": "10 - Close CRM Sync - Sync Demodesk Transcripts",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-10",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "demodesk-backfill",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "backfill-trigger-10",
+      "name": "Backfill Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        540
+      ],
+      "webhookId": "demodesk-backfill"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"entity\": \"demodesk_transcripts\", \"status\": \"running\", \"started_at\": \"{{ $now.toISO() }}\"}",
+        "options": {}
+      },
+      "id": "sync-start-10",
+      "name": "Sync Start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 5 API-Keys x 5 Seiten = 25 Items fuer HTTP Request Node\nconst apiKeys = [\n  { name: 'Brantan', key: $env.DEMODESK_API_KEY_BRANTAN },\n  { name: 'Amadeus', key: $env.DEMODESK_API_KEY_AMADEUS },\n  { name: 'Lilian', key: $env.DEMODESK_API_KEY_LILIAN },\n  { name: 'Thomas', key: $env.DEMODESK_API_KEY_THOMAS },\n  { name: 'Peter', key: $env.DEMODESK_API_KEY_PETER },\n].filter(k => k.key);\n\nconst maxPages = 5;\nconst items = [];\nfor (const k of apiKeys) {\n  for (let page = 1; page <= maxPages; page++) {\n    items.push({ json: { apiKey: k.key, userName: k.name, page } });\n  }\n}\nreturn items;"
+      },
+      "id": "init-keys-10",
+      "name": "Init API Keys",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://demodesk.com/api/v1/demos?filter[schedule_eq]=past&filter[recordings_present]=true&include=recordings,participants&per_page=25&page={{ $json.page }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api-key",
+              "value": "={{ $json.apiKey }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-demos-10",
+      "name": "Fetch Demos Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Alle Seiten-Responses verarbeiten, Recordings + Participant-Daten extrahieren\nconst responses = $input.all();\nconst initItems = $('Init API Keys').all();\nconst allRecordings = [];\n\nfor (let i = 0; i < responses.length; i++) {\n  const resp = responses[i].json;\n  const apiKey = initItems[i]?.json?.apiKey || '';\n  const data = resp.data || [];\n  const included = resp.included || [];\n\n  if (!data.length) continue;\n\n  // Maps fuer Recordings und Participants\n  const recordingMap = {};\n  const participantMap = {};\n  for (const inc of included) {\n    if (inc.type === 'recordings') {\n      recordingMap[inc.id] = inc.attributes || {};\n    } else if (inc.type === 'participants') {\n      participantMap[inc.id] = inc.attributes || {};\n    }\n  }\n\n  // Pro Demo: Recordings + Teilnehmer extrahieren\n  for (const demo of data) {\n    const attrs = demo.attributes || {};\n    const rels = demo.relationships || {};\n\n    const recRefs = rels.recordings?.data || [];\n    for (const recRef of recRefs) {\n      const rec = recordingMap[recRef.id] || {};\n      if (!rec.token) continue;\n\n      // Kunden-Teilnehmer filtern\n      const partRefs = rels.participants?.data || [];\n      const customers = partRefs\n        .map(p => participantMap[p.id])\n        .filter(p => p && p.permission === 'customer');\n\n      const participantEmail = customers.find(p => p.email)?.email\n        || customers.find(p => p.displayName?.includes('@'))?.displayName\n        || '';\n      const participantName = customers.find(p => p.fullName && !p.fullName.includes('@'))?.fullName || '';\n      const hostName = [attrs.userFirstName, attrs.userLastName].filter(Boolean).join(' ');\n\n      allRecordings.push({\n        token: rec.token,\n        demoId: demo.id,\n        account: attrs.account || '',\n        startDate: attrs.startDate || '',\n        duration: attrs.duration || 0,\n        customerUrl: rec.customerUrl || '',\n        audioOnly: rec.audioOnly || false,\n        includedStatus: rec.status || '',\n        participantEmail,\n        participantName,\n        hostName,\n        apiKey\n      });\n    }\n  }\n}\n\n// Duplikate entfernen (gleicher Token)\nconst seen = new Set();\nconst unique = allRecordings.filter(r => {\n  if (seen.has(r.token)) return false;\n  seen.add(r.token);\n  return true;\n});\n\nreturn [{ json: { recordings: unique, count: unique.length } }];"
+      },
+      "id": "extract-recs-10",
+      "name": "Extract Recordings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allRecordings = $('Extract Recordings').first().json.recordings;\n\n// Bestehende Demodesk-Tokens aus Supabase laden\nconst response = await this.helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_LEADS_URL + '/rest/v1/transcripts?select=demodesk_token&source_type=eq.demodesk&demodesk_token=not.is.null&participant_email=not.is.null&participant_email=neq.&limit=100000',\n  headers: {\n    'apikey': $env.SUPABASE_LEADS_KEY,\n    'Authorization': 'Bearer ' + $env.SUPABASE_LEADS_KEY\n  }\n});\n\nconst existing = Array.isArray(response) ? response : [];\nconst syncedTokens = new Set(existing.filter(t => t && t.demodesk_token).map(t => t.demodesk_token));\nconst unprocessed = allRecordings.filter(r => !syncedTokens.has(r.token));\n\nreturn [{ json: { unprocessedRecordings: unprocessed, count: unprocessed.length } }];"
+      },
+      "id": "filter-10",
+      "name": "Filter Unprocessed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-10",
+      "name": "Has Recordings?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const recordings = $('Filter Unprocessed').first().json.unprocessedRecordings;\nreturn recordings.map(r => ({\n  json: {\n    token: r.token,\n    demoId: r.demoId,\n    account: r.account,\n    startDate: r.startDate,\n    duration: r.duration,\n    customerUrl: r.customerUrl || '',\n    audioOnly: r.audioOnly || false,\n    includedStatus: r.includedStatus || '',\n    participantEmail: r.participantEmail || '',\n    participantName: r.participantName || '',\n    hostName: r.hostName || '',\n    apiKey: r.apiKey || ''\n  }\n}));"
+      },
+      "id": "split-10",
+      "name": "Split Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 3,
+        "options": {}
+      },
+      "id": "batch-10",
+      "name": "Batch Processing",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fuer jedes Recording: Details + Transkript von Demodesk holen\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const token = item.json.token;\n  const apiKey = item.json.apiKey || $env.DEMODESK_API_KEY;\n  let videoUrl = '';\n  let customerUrl = item.json.customerUrl || '';\n  let audioOnly = item.json.audioOnly || false;\n  let recordingStatus = item.json.includedStatus || '';\n  let createdAt = '';\n\n  // 1. Recording-Details abrufen (Video-URL + Metadaten)\n  try {\n    const recording = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://demodesk.com/api/v1/recordings/${token}`,\n      headers: {\n        'api-key': apiKey,\n        'Accept': 'application/json'\n      }\n    });\n    const attrs = recording.data?.attributes || {};\n    videoUrl = attrs.url || '';\n    customerUrl = attrs.customerUrl || customerUrl;\n    audioOnly = attrs.audioOnly ?? audioOnly;\n    recordingStatus = attrs.status || recordingStatus;\n    createdAt = attrs.createdAt || '';\n  } catch (e) {\n    // Recording-Details nicht verfuegbar\n  }\n\n  // 2. Transkript abrufen\n  let transcript = '';\n  try {\n    const resp = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://demodesk.com/api/v1/recordings/${token}/transcript`,\n      headers: {\n        'api-key': apiKey,\n        'Accept': 'text/plain'\n      }\n    });\n    transcript = typeof resp === 'string' ? resp : (resp.data || JSON.stringify(resp));\n  } catch (e) {\n    transcript = '';\n  }\n\n  results.push({\n    json: {\n      token: item.json.token,\n      demoId: item.json.demoId,\n      account: item.json.account,\n      startDate: item.json.startDate,\n      duration: item.json.duration,\n      participantEmail: item.json.participantEmail,\n      participantName: item.json.participantName,\n      hostName: item.json.hostName,\n      videoUrl,\n      customerUrl,\n      audioOnly,\n      recordingStatus,\n      transcript,\n      createdAt\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "enrich-10",
+      "name": "Enrich Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.videoUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-video-10",
+      "name": "Download Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        100
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $('Enrich Metadata').item.json.account ? $('Enrich Metadata').item.json.account.replace(/[^a-zA-Z0-9_-]/g, '_') : 'recording' }}_{{ $('Enrich Metadata').item.json.startDate ? $('Enrich Metadata').item.json.startDate.substring(0, 10) : 'nodate' }}_{{ $('Enrich Metadata').item.json.token }}.mp4",
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_DRIVE_DEMODESK_FOLDER_ID }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "gdrive-upload-10",
+      "name": "Google Drive Upload",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2640,
+        100
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "d105sfwUnmIqZW8b",
+          "name": "Google Drive account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Daten aus Enrich Metadata + Google Drive zusammenfuehren\nconst enriched = $('Enrich Metadata').all();\nlet driveResults = [];\ntry {\n  driveResults = $('Google Drive Upload').all();\n} catch (e) {\n  driveResults = [];\n}\n\nconst batch = enriched.map((item, i) => {\n  const meta = item.json;\n  const drive = driveResults[i]?.json || {};\n  const hasDrive = drive.id && !drive.error;\n\n  return {\n    source_type: 'demodesk',\n    content: meta.transcript || '',\n    call_type: 'strategiegespraech',\n    url: meta.customerUrl || '',\n    demodesk_token: meta.token || '',\n    demodesk_demo_id: String(meta.demoId || ''),\n    recording_url: meta.videoUrl || '',\n    google_drive_url: hasDrive ? (drive.webViewLink || drive.webContentLink || '') : '',\n    google_drive_file_id: hasDrive ? drive.id : '',\n    customer_url: meta.customerUrl || '',\n    ai_summary: '',\n    audio_only: meta.audioOnly || false,\n    recording_status: meta.recordingStatus || 'ready',\n    participant_email: meta.participantEmail || '',\n    participant_name: meta.participantName || '',\n    host_name: meta.hostName || '',\n    meeting_account: meta.account || '',\n    meeting_start: meta.startDate || null,\n    meeting_duration: meta.duration || null,\n    synced_at: new Date().toISOString()\n  };\n});\n\n// Upsert in Supabase (on_conflict=demodesk_token)\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: $env.SUPABASE_LEADS_URL + '/rest/v1/transcripts?on_conflict=demodesk_token',\n  headers: {\n    'apikey': $env.SUPABASE_LEADS_KEY,\n    'Authorization': 'Bearer ' + $env.SUPABASE_LEADS_KEY,\n    'Content-Type': 'application/json',\n    'Prefer': 'resolution=merge-duplicates,return=representation'\n  },\n  body: JSON.stringify(batch)\n});\n\nreturn [{ json: { upserted: batch.length } }];"
+      },
+      "id": "upsert-10",
+      "name": "Upsert Transcripts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "wait-10",
+      "name": "Wait 2s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3120,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const count = $('Filter Unprocessed').first().json.count;\nconst syncRunId = $('Sync Start').first().json.id;\nreturn [{ json: { count, syncRunId } }];"
+      },
+      "id": "count-10",
+      "name": "Count Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const syncRunId = $('Sync Start').first().json.id;\nreturn [{ json: { count: 0, syncRunId } }];"
+      },
+      "id": "empty-10",
+      "name": "Empty Count",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs?id=eq.{{ $json.syncRunId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\": \"success\", \"records_synced\": {{ $json.count }}, \"finished_at\": \"{{ $now.toISO() }}\"}",
+        "options": {}
+      },
+      "id": "sync-success-10",
+      "name": "Sync Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Sync Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backfill Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sync Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Start": {
+      "main": [
+        [
+          {
+            "node": "Init API Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init API Keys": {
+      "main": [
+        [
+          {
+            "node": "Fetch Demos Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Demos Page": {
+      "main": [
+        [
+          {
+            "node": "Extract Recordings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Recordings": {
+      "main": [
+        [
+          {
+            "node": "Filter Unprocessed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Unprocessed": {
+      "main": [
+        [
+          {
+            "node": "Has Recordings?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Recordings?": {
+      "main": [
+        [
+          {
+            "node": "Split Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Empty Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Items": {
+      "main": [
+        [
+          {
+            "node": "Batch Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch Processing": {
+      "main": [
+        [
+          {
+            "node": "Count Records",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enrich Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Metadata": {
+      "main": [
+        [
+          {
+            "node": "Download Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video": {
+      "main": [
+        [
+          {
+            "node": "Google Drive Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Upload": {
+      "main": [
+        [
+          {
+            "node": "Upsert Transcripts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Transcripts": {
+      "main": [
+        [
+          {
+            "node": "Wait 2s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2s": {
+      "main": [
+        [
+          {
+            "node": "Batch Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Records": {
+      "main": [
+        [
+          {
+            "node": "Sync Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empty Count": {
+      "main": [
+        [
+          {
+            "node": "Sync Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

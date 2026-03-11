@@ -1,0 +1,233 @@
+{
+  "id": "Qs3XRfwzLEHsft25",
+  "name": "09 - Close CRM Sync - Sync Custom Fields",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "d1a1b1c1-0001-4000-a000-000000000001",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "d1a1b1c1-0002-4000-a000-000000000002",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -300,
+        540
+      ],
+      "webhookId": "sync-custom-fields-test"
+    },
+    {
+      "parameters": {
+        "url": "https://api.close.com/api/v1/custom_field/lead/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -40,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "id": "d1a1b1c1-0003-4000-a000-000000000003",
+      "name": "Get Lead Fields",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "c1zqLlNCaOTBnrvH",
+          "name": "Close.io"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.close.com/api/v1/custom_field/opportunity/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        200,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "id": "d1a1b1c1-0004-4000-a000-000000000004",
+      "name": "Get Opportunity Fields",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "c1zqLlNCaOTBnrvH",
+          "name": "Close.io"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.close.com/api/v1/custom_field/activity/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "id": "d1a1b1c1-0007-4000-a000-000000000007",
+      "name": "Get Activity Fields",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "c1zqLlNCaOTBnrvH",
+          "name": "Close.io"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const leadResponse = $items(\"Get Lead Fields\");\nconst oppResponse = $items(\"Get Opportunity Fields\");\nconst actResponse = $items(\"Get Activity Fields\");\nlet results = [];\n\nfor (const page of leadResponse) {\n  const fields = page.json.data || [];\n  for (const f of fields) {\n    results.push({\n      json: {\n        close_field_id: f.id,\n        name: f.name,\n        entity_type: 'lead',\n        field_type: f.type || null,\n        synced_at: new Date().toISOString()\n      }\n    });\n  }\n}\n\nfor (const page of oppResponse) {\n  const fields = page.json.data || [];\n  for (const f of fields) {\n    results.push({\n      json: {\n        close_field_id: f.id,\n        name: f.name,\n        entity_type: 'opportunity',\n        field_type: f.type || null,\n        synced_at: new Date().toISOString()\n      }\n    });\n  }\n}\n\nfor (const page of actResponse) {\n  const fields = page.json.data || [];\n  for (const f of fields) {\n    results.push({\n      json: {\n        close_field_id: f.id,\n        name: f.name,\n        entity_type: 'activity',\n        field_type: f.type || null,\n        synced_at: new Date().toISOString()\n      }\n    });\n  }\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ],
+      "id": "d1a1b1c1-0005-4000-a000-000000000005",
+      "name": "Transform for Supabase"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/custom_fields?on_conflict=close_field_id",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        300
+      ],
+      "id": "d1a1b1c1-0006-4000-a000-000000000006",
+      "name": "Upsert to Supabase",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUPABASE_HTTP_CREDENTIAL_ID",
+          "name": "Supabase API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get Lead Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Lead Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Lead Fields": {
+      "main": [
+        [
+          {
+            "node": "Get Opportunity Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Opportunity Fields": {
+      "main": [
+        [
+          {
+            "node": "Get Activity Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Activity Fields": {
+      "main": [
+        [
+          {
+            "node": "Transform for Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform for Supabase": {
+      "main": [
+        [
+          {
+            "node": "Upsert to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

@@ -1,0 +1,25 @@
+# Secrets
+.env
+.env.local
+.env.production
+.env*.local
+.mcp.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+.next/
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# n8n
+n8n/backups/
+
+# IDE
+.idea/
+.vscode/
+*.swp

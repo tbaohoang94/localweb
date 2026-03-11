@@ -1,0 +1,492 @@
+{
+  "id": "4sjQWkilSRCgdQQa",
+  "name": "03 - Google Maps Pipeline - Category Qualification",
+  "active": true,
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 188],
+      "webhookId": "test-wf03",
+      "parameters": {
+        "path": "test-wf03",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 388],
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 10 }]
+        }
+      }
+    },
+    {
+      "id": "mark-no-category",
+      "name": "Mark No-Category Unqualified",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 100],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.new&category=is.null",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"pipeline_stage\": \"unqualified\", \"qualification_reason\": \"Keine Category aus Google Maps\"}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "get-categories",
+      "name": "Get Categories",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 288],
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.new&category=not.is.null&select=search_string,category&limit=1000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "paginationCompleteWhen": "responseIsEmpty",
+              "maxRequests": 100,
+              "parameters": {
+                "parameters": [
+                  { "type": "qs", "name": "offset", "value": "={{ $pageCount * 1000 }}" }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "check-has-data",
+      "name": "Has New Businesses?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [448, 288],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.search_string || '' }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "extract-pairs",
+      "name": "Extract Unique Pairs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, 288],
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst pairs = {};\nfor (const item of items) {\n  const parts = item.search_string.split(' ');\n  const keyword = parts.length > 2 ? parts.slice(0, -2).join(' ') : parts[0];\n  const key = `${keyword}|||${item.category}`;\n  if (!pairs[key]) {\n    pairs[key] = { keyword, category: item.category, count: 0 };\n  }\n  pairs[key].count++;\n}\nreturn Object.values(pairs).map(p => ({ json: p }));"
+      }
+    },
+    {
+      "id": "fetch-cache",
+      "name": "Fetch Cache",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [896, 288],
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/category_qualifications?select=keyword,category,relevant,reason&limit=5000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "split-cached",
+      "name": "Split Cached vs Uncached",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 288],
+      "parameters": {
+        "jsCode": "const pairs = $('Extract Unique Pairs').all().map(i => i.json);\nconst cacheItems = $('Fetch Cache').all().map(i => i.json);\n\n// Cache-Map aufbauen\nconst cacheMap = new Map();\nfor (const c of cacheItems) {\n  if (c.keyword && c.category) {\n    cacheMap.set(`${c.keyword}|||${c.category}`, c);\n  }\n}\n\nconst cached = [];\nconst uncached = [];\n\nfor (const pair of pairs) {\n  const key = `${pair.keyword}|||${pair.category}`;\n  const hit = cacheMap.get(key);\n  if (hit) {\n    cached.push({ json: { ...pair, relevant: hit.relevant, reason: hit.reason, source: 'cache' } });\n  } else {\n    uncached.push({ json: { ...pair, source: 'openai' } });\n  }\n}\n\n// Statistik ausgeben\nconst stats = { total: pairs.length, cached: cached.length, uncached: uncached.length };\n\n// Beide Listen zusammen zurueckgeben, mit source-Flag zur Unterscheidung\nreturn [...cached, ...uncached];"
+      }
+    },
+    {
+      "id": "route-source",
+      "name": "From Cache?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1344, 288],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.source }}",
+              "rightValue": "cache",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cached-relevant-check",
+      "name": "Cached: Relevant?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1568, 128],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.relevant }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mark-qualified",
+      "name": "Mark Qualified",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1792, 28],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.new&category=eq.{{ encodeURIComponent($json.category) }}&search_string=like.{{ encodeURIComponent($json.keyword) }}*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline_stage\": \"qualified\",\n  \"qualification_reason\": {{ JSON.stringify($json.reason) }},\n  \"qualified_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "mark-unqualified",
+      "name": "Mark Unqualified",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1792, 228],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.new&category=eq.{{ encodeURIComponent($json.category) }}&search_string=like.{{ encodeURIComponent($json.keyword) }}*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline_stage\": \"unqualified\",\n  \"qualification_reason\": {{ JSON.stringify($json.reason) }},\n  \"qualified_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "loop",
+      "name": "Loop Over Uncached",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1568, 488],
+      "parameters": { "options": {} }
+    },
+    {
+      "id": "openai-check",
+      "name": "OpenAI Category Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1792, 488],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Du pr\\u00fcfst ob eine Google Maps Kategorie zum Suchbegriff passt. Ein Suchbegriff beschreibt eine Branche oder Dienstleistung. Die Kategorie ist die Google Maps Hauptkategorie des Unternehmens.\\n\\nAntworte NUR mit validem JSON: {\\\"relevant\\\": true/false, \\\"reason\\\": \\\"Kurze Begr\\u00fcndung\\\"}\\n\\nBeispiele:\\n- Suchbegriff: Umzugsunternehmen, Kategorie: Umzugsunternehmen \\u2192 relevant: true\\n- Suchbegriff: Umzugsunternehmen, Kategorie: Steuerberater \\u2192 relevant: false\\n- Suchbegriff: Umzugsunternehmen, Kategorie: Spedition \\u2192 relevant: true (verwandte Branche)\\n\\nSei gro\\u00dfz\\u00fcgig bei verwandten Branchen, aber strikt bei komplett unverwandten.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(\"Suchbegriff: \" + $json.keyword + \"\\nKategorie: \" + $json.category) }}\n    }\n  ]\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "parse-result",
+      "name": "Parse Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2016, 488],
+      "parameters": {
+        "jsCode": "try {\n  const content = $input.first().json.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  return [{ json: {\n    relevant: !!parsed.relevant,\n    reason: parsed.reason || '',\n    keyword: $('Loop Over Uncached').first().json.keyword,\n    category: $('Loop Over Uncached').first().json.category\n  }}];\n} catch (e) {\n  return [{ json: {\n    relevant: false,\n    reason: 'Parse error - defaulting to not relevant',\n    keyword: $('Loop Over Uncached').first().json.keyword,\n    category: $('Loop Over Uncached').first().json.category\n  }}];\n}"
+      }
+    },
+    {
+      "id": "save-to-cache",
+      "name": "Save to Cache",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2240, 488],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/category_qualifications?on_conflict=keyword,category",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal,resolution=merge-duplicates" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"keyword\": {{ JSON.stringify($json.keyword) }},\n  \"category\": {{ JSON.stringify($json.category) }},\n  \"relevant\": {{ $json.relevant }},\n  \"reason\": {{ JSON.stringify($json.reason) }}\n}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "check-relevant",
+      "name": "Is Relevant?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [2464, 488],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.relevant || $('Parse Result').first().json.relevant }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mark-qualified-new",
+      "name": "Mark Qualified (New)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2688, 388],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.new&category=eq.{{ encodeURIComponent($('Parse Result').first().json.category) }}&search_string=like.{{ encodeURIComponent($('Parse Result').first().json.keyword) }}*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline_stage\": \"qualified\",\n  \"qualification_reason\": {{ JSON.stringify($('Parse Result').first().json.reason) }},\n  \"qualified_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "mark-unqualified-new",
+      "name": "Mark Unqualified (New)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2688, 588],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.new&category=eq.{{ encodeURIComponent($('Parse Result').first().json.category) }}&search_string=like.{{ encodeURIComponent($('Parse Result').first().json.keyword) }}*",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline_stage\": \"unqualified\",\n  \"qualification_reason\": {{ JSON.stringify($('Parse Result').first().json.reason) }},\n  \"qualified_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "rate-limit",
+      "name": "Rate Limit 200ms",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2912, 488],
+      "parameters": {
+        "jsCode": "await new Promise(r => setTimeout(r, 200));\nreturn $input.all().map(item => ({ json: item.json }));"
+      }
+    },
+    {
+      "id": "trigger-wf04a",
+      "name": "Trigger WF 04a",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [900, -100],
+      "parameters": {
+        "workflowId": { "value": "qFqHqkg2nsX3jP59" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": false }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Mark No-Category Unqualified", "type": "main", "index": 0 }]]
+    },
+    "Schedule Trigger": {
+      "main": [[{ "node": "Mark No-Category Unqualified", "type": "main", "index": 0 }]]
+    },
+    "Mark No-Category Unqualified": {
+      "main": [[{ "node": "Get Categories", "type": "main", "index": 0 }]]
+    },
+    "Get Categories": {
+      "main": [[{ "node": "Has New Businesses?", "type": "main", "index": 0 }]]
+    },
+    "Has New Businesses?": {
+      "main": [
+        [{ "node": "Extract Unique Pairs", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Extract Unique Pairs": {
+      "main": [[{ "node": "Fetch Cache", "type": "main", "index": 0 }]]
+    },
+    "Fetch Cache": {
+      "main": [[{ "node": "Split Cached vs Uncached", "type": "main", "index": 0 }]]
+    },
+    "Split Cached vs Uncached": {
+      "main": [[{ "node": "From Cache?", "type": "main", "index": 0 }]]
+    },
+    "From Cache?": {
+      "main": [
+        [{ "node": "Cached: Relevant?", "type": "main", "index": 0 }],
+        [{ "node": "Loop Over Uncached", "type": "main", "index": 0 }]
+      ]
+    },
+    "Cached: Relevant?": {
+      "main": [
+        [{ "node": "Mark Qualified", "type": "main", "index": 0 }],
+        [{ "node": "Mark Unqualified", "type": "main", "index": 0 }]
+      ]
+    },
+    "Loop Over Uncached": {
+      "main": [
+        [{ "node": "Trigger WF 04a", "type": "main", "index": 0 }],
+        [{ "node": "OpenAI Category Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "OpenAI Category Check": {
+      "main": [[{ "node": "Parse Result", "type": "main", "index": 0 }]]
+    },
+    "Parse Result": {
+      "main": [[{ "node": "Save to Cache", "type": "main", "index": 0 }]]
+    },
+    "Save to Cache": {
+      "main": [[{ "node": "Is Relevant?", "type": "main", "index": 0 }]]
+    },
+    "Is Relevant?": {
+      "main": [
+        [{ "node": "Mark Qualified (New)", "type": "main", "index": 0 }],
+        [{ "node": "Mark Unqualified (New)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Mark Qualified (New)": {
+      "main": [[{ "node": "Rate Limit 200ms", "type": "main", "index": 0 }]]
+    },
+    "Mark Unqualified (New)": {
+      "main": [[{ "node": "Rate Limit 200ms", "type": "main", "index": 0 }]]
+    },
+    "Rate Limit 200ms": {
+      "main": [[{ "node": "Loop Over Uncached", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "75nGTzEeTlBQmlys",
+    "executionTimeout": 600,
+    "maxConcurrencyLevel": 1
+  }
+}

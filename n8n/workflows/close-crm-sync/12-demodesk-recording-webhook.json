@@ -1,0 +1,266 @@
+{
+  "name": "12 - Close CRM Sync - Demodesk Recording Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "demodesk-recording",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "demodesk-recording-webhook",
+      "id": "e607a323-baf8-482a-9352-e0dd06796221"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Demodesk Webhook Payload: recording.transcription_postprocessed\nconst body = $input.first().json.body || $input.first().json;\nconst attrs = body.attributes || body;\n\nconst token = attrs.token || '';\nconst demoId = attrs.demoId || '';\nconst hostEmail = attrs.hostEmail || '';\nconst hostId = attrs.hostId || '';\nconst webhookUrl = attrs.url || '';\nconst temporaryVideoUrl = attrs.temporaryVideoUrl || '';\nconst aiSummary = attrs.primaryAiSummaryPlaintext || attrs.latestAiSummaryPlaintext || '';\n\nif (!token) {\n  throw new Error('Kein Recording Token im Webhook-Payload gefunden');\n}\n\nreturn [{\n  json: {\n    token,\n    demoId: String(demoId),\n    hostEmail,\n    hostId: String(hostId),\n    webhookUrl,\n    temporaryVideoUrl,\n    aiSummary\n  }\n}];"
+      },
+      "name": "Extract Webhook Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "id": "5cb44896-2045-4847-9592-ebb17fe6ae9a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pruefen ob Recording bereits in Supabase existiert\nconst token = $json.token;\n\nconst response = await this.helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_LEADS_URL + '/rest/v1/transcripts?select=id&demodesk_token=eq.' + token + '&limit=1',\n  headers: {\n    'apikey': $env.SUPABASE_LEADS_KEY,\n    'Authorization': 'Bearer ' + $env.SUPABASE_LEADS_KEY\n  }\n});\n\nconst exists = Array.isArray(response) && response.length > 0;\n\nreturn [{ json: { ...$json, alreadyExists: exists } }];"
+      },
+      "name": "Check Duplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "id": "1bce49c0-3289-4bda-86dd-b9845d973587"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.alreadyExists }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Is New?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "id": "48b59bdf-5431-4e97-91dc-4aa2def2f69a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recording-Details + Transkript + Teilnehmer-Daten von Demodesk holen\n// Alle API-Keys definieren (jeder Key hat nur Zugriff auf eigene Demos)\nconst allApiKeys = [\n  $env.DEMODESK_API_KEY_LILIAN,\n  $env.DEMODESK_API_KEY_THOMAS,\n  $env.DEMODESK_API_KEY_PETER,\n  $env.DEMODESK_API_KEY_BRANTAN,\n  $env.DEMODESK_API_KEY,\n].filter(Boolean);\n\nconst token = $json.token;\nconst demoId = $json.demoId;\nlet videoUrl = '';\nlet customerUrl = '';\nlet audioOnly = false;\nlet recordingStatus = '';\n\n// 1. Recording-Details (funktioniert mit jedem Key)\ntry {\n  const recording = await this.helpers.httpRequest({\n    method: 'GET',\n    url: `https://demodesk.com/api/v1/recordings/${token}`,\n    headers: { 'api-key': allApiKeys[0], 'Accept': 'application/json' }\n  });\n  const attrs = recording.data?.attributes || {};\n  videoUrl = attrs.url || '';\n  customerUrl = attrs.customerUrl || '';\n  audioOnly = attrs.audioOnly || false;\n  recordingStatus = attrs.status || '';\n} catch (e) {\n  videoUrl = $json.temporaryVideoUrl || '';\n  customerUrl = $json.webhookUrl || '';\n}\n\n// 2. Demo-Daten mit Teilnehmern — richtigen Key finden\nlet participantEmail = '';\nlet participantName = '';\nlet hostName = '';\nlet meetingAccount = '';\nlet meetingStart = null;\nlet meetingDuration = null;\nlet workingKey = '';\n\nfor (const apiKey of allApiKeys) {\n  try {\n    const demoResp = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://demodesk.com/api/v1/demos?filter[id_eq]=${demoId}&include=participants`,\n      headers: { 'api-key': apiKey, 'Accept': 'application/json' }\n    });\n    const demos = demoResp.data || [];\n    if (demos.length === 0) continue;\n\n    // Richtigen Key gefunden!\n    workingKey = apiKey;\n    const demo = demos[0];\n    const attrs = demo.attributes || {};\n    meetingAccount = attrs.account || '';\n    meetingStart = attrs.startDate || null;\n    meetingDuration = attrs.duration || null;\n    hostName = [attrs.userFirstName, attrs.userLastName].filter(Boolean).join(' ');\n\n    const included = demoResp.included || [];\n    const participantMap = {};\n    for (const item of included) {\n      if (item.type === 'participants' && item.attributes) {\n        participantMap[item.id] = item.attributes;\n      }\n    }\n    const partIds = (demo.relationships?.participants?.data || []).map(p => p.id);\n    const customerParts = partIds.map(id => participantMap[id]).filter(p => p && p.permission === 'customer');\n    participantEmail = customerParts.find(p => p.email)?.email || customerParts.find(p => p.displayName?.includes('@'))?.displayName || '';\n    participantName = customerParts.find(p => p.fullName && p.fullName.trim() && !p.fullName.includes('@'))?.fullName || '';\n    break;\n  } catch (e) {\n    continue;\n  }\n}\n\n// 3. Transkript mit dem gefundenen Key abrufen (Fallback: Default-Key)\nlet transcript = '';\nconst transcriptKey = workingKey || allApiKeys[0];\ntry {\n  const resp = await this.helpers.httpRequest({\n    method: 'GET',\n    url: `https://demodesk.com/api/v1/recordings/${token}/transcript`,\n    headers: { 'api-key': transcriptKey, 'Accept': 'text/plain' }\n  });\n  transcript = typeof resp === 'string' ? resp : (resp.data || JSON.stringify(resp));\n} catch (e) {\n  transcript = '';\n}\n\nreturn [{\n  json: {\n    token: $json.token,\n    demoId: $json.demoId,\n    hostEmail: $json.hostEmail,\n    aiSummary: $json.aiSummary,\n    videoUrl,\n    customerUrl,\n    audioOnly,\n    recordingStatus,\n    transcript,\n    participantEmail,\n    participantName,\n    hostName,\n    meetingAccount,\n    meetingStart,\n    meetingDuration\n  }\n}];"
+      },
+      "name": "Fetch Recording Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "id": "9797acea-d631-4dfc-8dc2-9b31c1306760"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.videoUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "name": "Download Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "id": "da6605b1-5ec7-47c2-9602-dc79a9b6b3f6"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "=Demodesk_{{ $('Fetch Recording Data').item.json.demoId }}_{{ $('Fetch Recording Data').item.json.token }}.mp4",
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_DRIVE_DEMODESK_FOLDER_ID }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "name": "Google Drive Upload",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1440,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "d105sfwUnmIqZW8b",
+          "name": "Google Drive account 2"
+        }
+      },
+      "id": "12ff354f-cdb2-4acb-847e-3d03902e46aa"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Daten zusammenfuehren und in Supabase speichern\nconst meta = $('Fetch Recording Data').first().json;\nlet drive = {};\ntry {\n  drive = $('Google Drive Upload').first().json || {};\n} catch (e) {\n  drive = {};\n}\nconst hasDrive = drive.id && !drive.error;\n\nconst record = {\n  source_type: 'demodesk',\n  content: meta.transcript || '',\n  call_type: 'strategiegespraech',\n  url: meta.customerUrl || '',\n  demodesk_token: meta.token || '',\n  demodesk_demo_id: meta.demoId || '',\n  recording_url: meta.videoUrl || '',\n  google_drive_url: hasDrive ? (drive.webViewLink || drive.webContentLink || '') : '',\n  google_drive_file_id: hasDrive ? drive.id : '',\n  customer_url: meta.customerUrl || '',\n  ai_summary: meta.aiSummary || '',\n  audio_only: meta.audioOnly || false,\n  recording_status: meta.recordingStatus || 'ready',\n  participant_email: meta.participantEmail || '',\n  participant_name: meta.participantName || '',\n  host_name: meta.hostName || '',\n  host_email: meta.hostEmail || '',\n  meeting_account: meta.meetingAccount || '',\n  meeting_start: meta.meetingStart || null,\n  meeting_duration: meta.meetingDuration || null,\n  synced_at: new Date().toISOString()\n};\n\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: $env.SUPABASE_LEADS_URL + '/rest/v1/transcripts',\n  headers: {\n    'apikey': $env.SUPABASE_LEADS_KEY,\n    'Authorization': 'Bearer ' + $env.SUPABASE_LEADS_KEY,\n    'Content-Type': 'application/json',\n    'Prefer': 'return=representation'\n  },\n  body: JSON.stringify([record])\n});\n\nreturn [{ json: { success: true, token: meta.token, participantEmail: meta.participantEmail, hasDrive } }];"
+      },
+      "name": "Save to Supabase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        300
+      ],
+      "id": "62d6a1bc-aa7c-4eea-9ce6-2d39dc38b07f"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Bereits vorhandenes Recording — nichts zu tun\nreturn [{ json: { skipped: true, token: $json.token, reason: 'already_exists' } }];"
+      },
+      "name": "Skip Duplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        500
+      ],
+      "id": "0414fd34-785c-4473-a05a-44183bdb0edd"
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Webhook Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Webhook Data": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Is New?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recording Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recording Data": {
+      "main": [
+        [
+          {
+            "node": "Download Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video": {
+      "main": [
+        [
+          {
+            "node": "Google Drive Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Upload": {
+      "main": [
+        [
+          {
+            "node": "Save to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "y5PB6EFfeKYeLxqp",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "local"
+  }
+}

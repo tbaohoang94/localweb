@@ -1,0 +1,97 @@
+{
+  "name": "10 - Workflow Backup (Daily)",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 2 * * *" }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily 02:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:5678/api/v1/workflows",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-N8N-API-KEY", "value": "={{ $env.N8N_LOCAL_API_KEY || '' }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-workflows",
+      "name": "Fetch All Workflows",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const workflows = $input.first().json.data || [];\nconst timestamp = $now.toFormat('yyyy-MM-dd');\n\nconst backup = {\n  timestamp,\n  workflowCount: workflows.length,\n  workflows: workflows.map(wf => ({\n    id: wf.id,\n    name: wf.name,\n    active: wf.active,\n    updatedAt: wf.updatedAt\n  }))\n};\n\n// Gesamtes Backup als einzelnes JSON\nconst fullBackup = JSON.stringify({ metadata: backup, workflows }, null, 2);\n\nreturn [{\n  json: {\n    timestamp,\n    workflowCount: workflows.length,\n    backupData: fullBackup\n  }\n}];"
+      },
+      "id": "build-backup",
+      "name": "Build Backup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/system_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source\": \"n8n\",\n  \"severity\": \"info\",\n  \"workflow_name\": \"10 - Workflow Backup\",\n  \"error_message\": \"Backup erfolgreich: {{ $json.workflowCount }} Workflows gesichert\",\n  \"metadata\": { \"timestamp\": \"{{ $json.timestamp }}\", \"workflowCount\": {{ $json.workflowCount }} }\n}",
+        "options": {}
+      },
+      "id": "log-backup",
+      "name": "Log Backup Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, 300],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Daily 02:00": {
+      "main": [
+        [
+          { "node": "Fetch All Workflows", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch All Workflows": {
+      "main": [
+        [
+          { "node": "Build Backup", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Build Backup": {
+      "main": [
+        [
+          { "node": "Log Backup Success", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,508 @@
+{
+  "id": "lVffwYj5EbYaERep",
+  "name": "11 - Close CRM Sync - Classify and Transcribe",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "classify-transcribe",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-11",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "classify-transcribe-11"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "chat-11",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        540
+      ],
+      "webhookId": "classify-transcribe-test"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst event = body.event || body;\nconst data = event.data || event;\n\nconst typeId = data.custom_activity_type_id || data._type || '';\nconst leadId = data.lead_id || '';\nconst userId = data.user_id || '';\nconst dateCreated = data.date_created || new Date().toISOString();\n\nconst typeMap = {\n  'actitype_6GTMexlVYwCl3ER9rYB4x4': 'coldcalling',\n  'actitype_4jcmhCre676aqKjDVWqODu': 'coldcalling',\n  'actitype_0Pow7dFbqAOrFjLsCT068D': 'erstgespraech',\n  'actitype_1t4dAEI4JjnbDr6mRnECr0': 'strategiegespraech'\n};\n\nconst callType = typeMap[typeId] || null;\nif (!callType) return [];\n\nconst date = new Date(dateCreated);\nconst dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString();\nconst dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).toISOString();\n\nreturn [{ json: { callType, leadId, userId, dateCreated, dayStart, dayEnd, typeId } }];"
+      },
+      "id": "identify-11",
+      "name": "Identify Activity Type",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.callType }}",
+              "rightValue": "strategiegespraech",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "is-sg-11",
+      "name": "Is Strategiegespraech?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 30,
+        "unit": "minutes"
+      },
+      "id": "wait-30m-11",
+      "name": "Wait 30min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.close.com/api/v1/activity/call/?lead_id={{ $json.leadId }}&date_created__gte={{ $json.dayStart }}&date_created__lt={{ $json.dayEnd }}&_limit=100",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-calls-11",
+      "name": "GET Close.io Calls",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $('GET Close.io Calls').first().json;\nconst callsData = response.data || [];\nconst meta = $('Identify Activity Type').first().json;\nconst callType = meta.callType;\nconst leadId = meta.leadId;\n\nconst existing = await this.helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_LEADS_URL + '/rest/v1/transcripts?select=url&source_type=eq.call',\n  headers: {\n    'apikey': $env.SUPABASE_LEADS_KEY,\n    'Authorization': 'Bearer ' + $env.SUPABASE_LEADS_KEY\n  }\n});\nconst transcribedUrls = new Set(\n  (Array.isArray(existing) ? existing : []).filter(t => t && t.url).map(t => t.url)\n);\n\nlet calls = callsData.filter(c => {\n  if (!c.recording_url) return false;\n  if (transcribedUrls.has(c.recording_url)) return false;\n  if (callType === 'coldcalling' && c.direction !== 'outbound') return false;\n  return true;\n});\n\nif (calls.length === 0) {\n  return [{ json: { transcripts: [], notes: [], count: 0 } }];\n}\n\nfunction uuid() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n    const r = Math.random() * 16 | 0;\n    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);\n  });\n}\n\nconst transcripts = [];\nconst notes = [];\n\nfor (let i = 0; i < calls.length; i++) {\n  const call = calls[i];\n  if (i > 0) await new Promise(r => setTimeout(r, 2000));\n\n  try {\n    const audioBuffer = await this.helpers.httpRequest({\n      method: 'GET',\n      url: call.recording_url,\n      headers: {\n        'Authorization': 'Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo='\n      },\n      encoding: 'arraybuffer'\n    });\n\n    const boundary = '----n8nBoundary' + Date.now() + i;\n    const modelPart = '--' + boundary + '\\r\\nContent-Disposition: form-data; name=\"model\"\\r\\n\\r\\nwhisper-1\\r\\n';\n    const fileHeader = '--' + boundary + '\\r\\nContent-Disposition: form-data; name=\"file\"; filename=\"recording.mp3\"\\r\\nContent-Type: audio/mpeg\\r\\n\\r\\n';\n    const footer = '\\r\\n--' + boundary + '--\\r\\n';\n\n    const bodyBuffer = Buffer.concat([\n      Buffer.from(modelPart),\n      Buffer.from(fileHeader),\n      Buffer.from(audioBuffer),\n      Buffer.from(footer)\n    ]);\n\n    const whisperResult = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.openai.com/v1/audio/transcriptions',\n      headers: {\n        'Authorization': 'Bearer ' + $env.OPENAI_API_KEY,\n        'Content-Type': 'multipart/form-data; boundary=' + boundary\n      },\n      body: bodyBuffer\n    });\n\n    const transcriptText = typeof whisperResult === 'string' ? whisperResult : (whisperResult.text || JSON.stringify(whisperResult));\n\n    const aiResult = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.openai.com/v1/chat/completions',\n      headers: {\n        'Authorization': 'Bearer ' + $env.OPENAI_API_KEY,\n        'Content-Type': 'application/json'\n      },\n      body: JSON.stringify({\n        model: 'gpt-4o',\n        messages: [\n          { role: 'system', content: 'Fasse das folgende Gespraechstranskript kurz und strukturiert zusammen. Gib die wichtigsten Punkte, Ergebnisse und naechste Schritte an. Antworte auf Deutsch.' },\n          { role: 'user', content: transcriptText }\n        ]\n      })\n    });\n\n    const aiParsed = typeof aiResult === 'string' ? JSON.parse(aiResult) : aiResult;\n    const summary = aiParsed.choices?.[0]?.message?.content || '';\n\n    let sourceId;\n    try {\n      const callLookup = await this.helpers.httpRequest({\n        method: 'GET',\n        url: $env.SUPABASE_LEADS_URL + '/rest/v1/calls?select=id&close_call_id=eq.' + call.id + '&limit=1',\n        headers: {\n          'apikey': $env.SUPABASE_LEADS_KEY,\n          'Authorization': 'Bearer ' + $env.SUPABASE_LEADS_KEY\n        }\n      });\n      sourceId = Array.isArray(callLookup) && callLookup.length > 0 ? callLookup[0].id : uuid();\n    } catch (e) {\n      sourceId = uuid();\n    }\n\n    transcripts.push({\n      source_type: 'call',\n      source_id: sourceId,\n      content: transcriptText,\n      call_type: callType,\n      summary: summary,\n      url: call.recording_url,\n      synced_at: new Date().toISOString()\n    });\n\n    const label = callType === 'erstgespraech' ? 'Erstgespraech' : 'Coldcalling';\n    notes.push({\n      lead_id: leadId,\n      note: label + ' - Zusammenfassung\\n\\n' + summary + '\\n\\n---\\nDatum: ' + (call.date_created || meta.dateCreated)\n    });\n  } catch (e) {\n    continue;\n  }\n}\n\nreturn [{ json: { transcripts, notes, count: transcripts.length } }];"
+      },
+      "id": "process-calls-11",
+      "name": "Process Calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      },
+      "id": "has-results-11",
+      "name": "Has Results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/transcripts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.transcripts) }}",
+        "options": {}
+      },
+      "id": "upsert-11",
+      "name": "Upsert Transcripts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const notes = $('Process Calls').first().json.notes;\nfor (let i = 0; i < notes.length; i++) {\n  if (i > 0) await new Promise(r => setTimeout(r, 1000));\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.close.com/api/v1/activity/note/',\n    headers: {\n      'Authorization': 'Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=',\n      'Content-Type': 'application/json'\n    },\n    body: JSON.stringify(notes[i])\n  });\n}\nreturn [{ json: { notesPosted: notes.length } }];"
+      },
+      "id": "post-notes-11",
+      "name": "Post Notes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 1,
+        "unit": "hours"
+      },
+      "id": "wait-1h-11",
+      "name": "Wait 1h",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Identify Activity Type').first().json;\nconst leadId = meta.leadId;\nconst dateCreated = meta.dateCreated;\n\nconst leads = await this.helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_LEADS_URL + '/rest/v1/leads?select=lead_name&close_lead_id=eq.' + leadId + '&limit=1',\n  headers: {\n    'apikey': $env.SUPABASE_LEADS_KEY,\n    'Authorization': 'Bearer ' + $env.SUPABASE_LEADS_KEY\n  }\n});\n\nif (!Array.isArray(leads) || leads.length === 0) {\n  return [{ json: { transcript: null, note: null, count: 0 } }];\n}\n\nconst leadName = leads[0].lead_name.toLowerCase();\nconst dayStr = new Date(dateCreated).toISOString().split('T')[0];\n\nlet allDemos = [];\nlet included = [];\nlet page = 1;\nlet hasMore = true;\n\nwhile (hasMore) {\n  try {\n    const resp = await this.helpers.httpRequest({\n      method: 'GET',\n      url: 'https://demodesk.com/api/v1/demos?filter[schedule_eq]=past&filter[recordings_present]=true&page=' + page,\n      headers: {\n        'api-key': $env.DEMODESK_API_KEY,\n        'Accept': 'application/json'\n      }\n    });\n    const parsed = typeof resp === 'string' ? JSON.parse(resp) : resp;\n    const demos = parsed.data || [];\n    allDemos = allDemos.concat(demos);\n    included = included.concat(parsed.included || []);\n    hasMore = demos.length >= 25;\n    page++;\n  } catch (e) {\n    hasMore = false;\n  }\n}\n\nconst recordingMap = {};\nfor (const item of included) {\n  if (item.type === 'recordings' && item.attributes) {\n    recordingMap[item.id] = item.attributes.token;\n  }\n}\n\nlet matchedToken = null;\nfor (const demo of allDemos) {\n  const attrs = demo.attributes || {};\n  const account = (attrs.account || '').toLowerCase();\n  const startDate = attrs.start_date || '';\n  if (startDate.startsWith(dayStr) && account.includes(leadName)) {\n    const recs = demo.relationships?.recordings?.data || [];\n    if (recs.length > 0 && recordingMap[recs[0].id]) {\n      matchedToken = recordingMap[recs[0].id];\n      break;\n    }\n  }\n}\n\nif (!matchedToken) {\n  return [{ json: { transcript: null, note: null, count: 0 } }];\n}\n\nlet transcriptText;\ntry {\n  transcriptText = await this.helpers.httpRequest({\n    method: 'GET',\n    url: 'https://demodesk.com/api/v1/recordings/' + matchedToken + '/transcript',\n    headers: {\n      'api-key': $env.DEMODESK_API_KEY,\n      'Accept': 'text/plain'\n    }\n  });\n  if (typeof transcriptText !== 'string') transcriptText = JSON.stringify(transcriptText);\n} catch (e) {\n  return [{ json: { transcript: null, note: null, count: 0 } }];\n}\n\nconst aiResult = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://api.openai.com/v1/chat/completions',\n  headers: {\n    'Authorization': 'Bearer ' + $env.OPENAI_API_KEY,\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({\n    model: 'gpt-4o',\n    messages: [\n      { role: 'system', content: 'Fasse das folgende Gespraechstranskript kurz und strukturiert zusammen. Gib die wichtigsten Punkte, Ergebnisse und naechste Schritte an. Antworte auf Deutsch.' },\n      { role: 'user', content: transcriptText }\n    ]\n  })\n});\n\nconst aiParsed = typeof aiResult === 'string' ? JSON.parse(aiResult) : aiResult;\nconst summary = aiParsed.choices?.[0]?.message?.content || '';\n\nfunction uuid() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n    const r = Math.random() * 16 | 0;\n    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);\n  });\n}\n\nconst transcript = {\n  source_type: 'demodesk',\n  source_id: uuid(),\n  content: transcriptText,\n  call_type: 'strategiegespraech',\n  summary: summary,\n  url: matchedToken,\n  synced_at: new Date().toISOString()\n};\n\nconst note = {\n  lead_id: leadId,\n  note: 'Strategiegespraech - Zusammenfassung\\n\\n' + summary + '\\n\\n---\\nDatum: ' + dateCreated\n};\n\nreturn [{ json: { transcript, note, count: 1 } }];"
+      },
+      "id": "process-sg-11",
+      "name": "Process SG",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      },
+      "id": "has-sg-11",
+      "name": "Has SG Result?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/transcripts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify([$json.transcript]) }}",
+        "options": {}
+      },
+      "id": "upsert-sg-11",
+      "name": "Upsert SG Transcript",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.close.com/api/v1/activity/note/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Process SG').first().json.note) }}",
+        "options": {}
+      },
+      "id": "note-sg-11",
+      "name": "Post Note SG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Identify Activity Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Identify Activity Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Activity Type": {
+      "main": [
+        [
+          {
+            "node": "Is Strategiegespraech?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Strategiegespraech?": {
+      "main": [
+        [
+          {
+            "node": "Wait 1h",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 30min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30min": {
+      "main": [
+        [
+          {
+            "node": "GET Close.io Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Close.io Calls": {
+      "main": [
+        [
+          {
+            "node": "Process Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Calls": {
+      "main": [
+        [
+          {
+            "node": "Has Results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Results?": {
+      "main": [
+        [
+          {
+            "node": "Upsert Transcripts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Upsert Transcripts": {
+      "main": [
+        [
+          {
+            "node": "Post Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1h": {
+      "main": [
+        [
+          {
+            "node": "Process SG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process SG": {
+      "main": [
+        [
+          {
+            "node": "Has SG Result?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has SG Result?": {
+      "main": [
+        [
+          {
+            "node": "Upsert SG Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Upsert SG Transcript": {
+      "main": [
+        [
+          {
+            "node": "Post Note SG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

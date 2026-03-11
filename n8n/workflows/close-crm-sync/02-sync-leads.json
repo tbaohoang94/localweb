@@ -1,0 +1,484 @@
+{
+  "id": "LuuTFS5EC1mOcdb1",
+  "name": "02 - Close CRM Sync - Sync Leads",
+  "nodes": [
+    {
+      "id": "trigger-02",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        376
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "sync-start-02",
+      "name": "Sync Start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        376
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"entity\": \"leads\", \"status\": \"running\", \"started_at\": \"{{ $now.toISO() }}\", \"sync_since\": \"{{ $json.since }}\", \"sync_until\": \"{{ $json.until }}\"}",
+        "options": {}
+      }
+    },
+    {
+      "id": "init-02",
+      "name": "Init",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        376
+      ],
+      "parameters": {
+        "jsCode": "const triggerData = $('Start').first().json;\nconst since = triggerData.since || new Date().toISOString();\nconst until = triggerData.until || new Date().toISOString();\nconst currentDate = since.split('T')[0];\nconst endDate = until.split('T')[0];\n\nconst sd = $getWorkflowStaticData('global');\nsd.dayLeads = [];\nsd.currentDate = currentDate;\nsd.endDate = endDate;\nsd.totalSynced = 0;\n\nreturn [{ json: { cursor: '' } }];"
+      }
+    },
+    {
+      "id": "build-body-02",
+      "name": "Build Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        376
+      ],
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst cursor = $input.first().json.cursor || '';\n\nconst body = {\n  query: { type: 'and', queries: [\n    { type: 'object_type', object_type: 'lead' },\n    {\n      type: 'field_condition',\n      field: { type: 'regular_field', object_type: 'lead', field_name: 'date_created' },\n      condition: {\n        type: 'moment_range',\n        on_or_after: { type: 'fixed_local_date', value: sd.currentDate, which: 'start' },\n        before: { type: 'fixed_local_date', value: sd.currentDate, which: 'end' }\n      }\n    }\n  ]},\n  sort: [{ direction: 'asc', field: { object_type: 'lead', type: 'regular_field', field_name: 'date_created' } }],\n  _fields: { lead: ['id', 'display_name', 'status_label', 'date_created', 'description', 'url', 'addresses'] },\n  _limit: 200\n};\nif (cursor) body.cursor = cursor;\nreturn [{ json: { requestBody: JSON.stringify(body) } }];"
+      }
+    },
+    {
+      "id": "fetch-02",
+      "name": "Search Close Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        376
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.close.com/api/v1/data/search/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "accumulate-02",
+      "name": "Accumulate Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        376
+      ],
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nif (!sd.dayLeads) sd.dayLeads = [];\nconst response = $input.first().json;\nconst leads = response.data || [];\nsd.dayLeads.push(...leads);\nconst cursor = response.cursor || '';\nconsole.log(sd.currentDate + ' page ' + Math.ceil(sd.dayLeads.length / 200) + ': +' + leads.length + ' (total: ' + sd.dayLeads.length + ')');\nreturn [{ json: { cursor } }];"
+      }
+    },
+    {
+      "id": "has-cursor-02",
+      "name": "Has Cursor?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        376
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cursor-check",
+              "leftValue": "={{ $json.cursor }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "wait-pagination-02",
+      "name": "Wait 500ms",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        200
+      ],
+      "parameters": {
+        "jsCode": "await new Promise(resolve => setTimeout(resolve, 500));\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "flush-day-02",
+      "name": "Flush + Transform",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        560
+      ],
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst allLeads = sd.dayLeads || [];\nsd.dayLeads = [];\n\nif (allLeads.length === 0) {\n  return [{ json: { batch: [], count: 0 } }];\n}\n\nconst transformed = allLeads.map(lead => ({\n  close_lead_id: lead.id,\n  lead_name: lead.display_name || '',\n  branche: lead.description || null,\n  google_maps_url: lead.url || null,\n  city: (lead.addresses && lead.addresses[0] && lead.addresses[0].city) || null,\n  status: lead.status_label || null,\n  close_created_at: lead.date_created || null,\n  synced_at: new Date().toISOString()\n}));\n\nconsole.log(sd.currentDate + ': transforming ' + transformed.length + ' leads');\nreturn [{ json: { batch: transformed, count: transformed.length } }];"
+      }
+    },
+    {
+      "id": "upsert-02",
+      "name": "Upsert Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        560
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/leads?on_conflict=close_lead_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.batch) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "advance-day-02",
+      "name": "Advance Day",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        560
+      ],
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst batchCount = $('Flush + Transform').first().json.count || 0;\nsd.totalSynced = (sd.totalSynced || 0) + batchCount;\n\nconst next = new Date(sd.currentDate + 'T00:00:00Z');\nnext.setUTCDate(next.getUTCDate() + 1);\nsd.currentDate = next.toISOString().split('T')[0];\nconst hasMore = sd.currentDate <= sd.endDate;\n\nconsole.log('Next: ' + sd.currentDate + ' | Total: ' + sd.totalSynced + ' | More: ' + hasMore);\nreturn [{ json: { hasMore, cursor: '' } }];"
+      }
+    },
+    {
+      "id": "if-more-02",
+      "name": "Has More Days?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        376
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "more-days-check",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "count-02",
+      "name": "Count Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        376
+      ],
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst syncRunId = $('Sync Start').first().json.id;\nreturn [{ json: { count: sd.totalSynced || 0, syncRunId } }];"
+      }
+    },
+    {
+      "id": "sync-success-02",
+      "name": "Sync Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2688,
+        376
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs?id=eq.{{ $json.syncRunId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\": \"success\", \"records_synced\": {{ $json.count }}, \"finished_at\": \"{{ $now.toISO() }}\"}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Sync Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Start": {
+      "main": [
+        [
+          {
+            "node": "Init",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init": {
+      "main": [
+        [
+          {
+            "node": "Build Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Body": {
+      "main": [
+        [
+          {
+            "node": "Search Close Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Close Leads": {
+      "main": [
+        [
+          {
+            "node": "Accumulate Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accumulate Page": {
+      "main": [
+        [
+          {
+            "node": "Has Cursor?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Cursor?": {
+      "main": [
+        [
+          {
+            "node": "Wait 500ms",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flush + Transform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 500ms": {
+      "main": [
+        [
+          {
+            "node": "Build Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flush + Transform": {
+      "main": [
+        [
+          {
+            "node": "Upsert Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Leads": {
+      "main": [
+        [
+          {
+            "node": "Advance Day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Advance Day": {
+      "main": [
+        [
+          {
+            "node": "Has More Days?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has More Days?": {
+      "main": [
+        [
+          {
+            "node": "Build Body",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Count Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Records": {
+      "main": [
+        [
+          {
+            "node": "Sync Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

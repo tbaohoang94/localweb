@@ -1,0 +1,371 @@
+{
+  "id": "lbyXKgVpYP6jryDu",
+  "name": "01 - Google Maps Pipeline - Start Apify Scrape",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -112
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?pipeline_stage=eq.failed_scrape&retry_count=lt.3&updated_at=lt.{{ $now.minus({ hours: 1 }).toISO() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"pipeline_stage\": \"new\",\n  \"last_error\": null\n}",
+        "options": {}
+      },
+      "id": "auto-retry-failed",
+      "name": "Auto-Retry Failed Scrapes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        -32
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?pipeline_stage=eq.new&select=id,query,city,country,apify_run_id&limit=8",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-unscraped",
+      "name": "Get New Locations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-has-items",
+              "leftValue": "={{ $json.length || $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-items",
+      "name": "Has Locations?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-run-id",
+              "leftValue": "={{ $json.apify_run_id || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-run",
+      "name": "Has Apify Run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $json.apify_run_id }}/resurrect",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "id": "resurrect-run",
+      "name": "Resurrect Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        48
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "H7EaKB5yYzqhBgZ8",
+          "name": "Apify"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/compass~crawler-google-places/runs?memory=2048",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"includeWebResults\":false,\"language\":\"de\",\"locationQuery\":{{ JSON.stringify($json.city + ', ' + $json.country) }},\"maxCrawledPlacesPerSearch\":1000,\"maxImages\":0,\"maximumLeadsEnrichmentRecords\":0,\"scrapeContacts\":false,\"scrapeDirectories\":false,\"scrapeImageAuthors\":false,\"scrapePlaceDetailPage\":false,\"scrapeReviewsPersonalData\":true,\"scrapeTableReservationProvider\":false,\"searchStringsArray\":[{{ JSON.stringify($json.query) }}],\"skipClosedPlaces\":true}",
+        "options": {}
+      },
+      "id": "start-apify",
+      "name": "Start Apify Actor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        -112
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "H7EaKB5yYzqhBgZ8",
+          "name": "Apify"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?id=eq.{{ $('Has Locations?').item.json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"apify_run_id\": {{ JSON.stringify($json.data?.id || $json.id || null) }},\n  \"pipeline_stage\": \"scraping\",\n  \"scraped_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "mark-running",
+      "name": "Mark Location Scraping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        -32
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Auto-Retry Failed Scrapes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Auto-Retry Failed Scrapes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Retry Failed Scrapes": {
+      "main": [
+        [
+          {
+            "node": "Get New Locations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get New Locations": {
+      "main": [
+        [
+          {
+            "node": "Has Locations?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Locations?": {
+      "main": [
+        [
+          {
+            "node": "Has Apify Run?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Has Apify Run?": {
+      "main": [
+        [
+          {
+            "node": "Resurrect Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start Apify Actor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resurrect Run": {
+      "main": [
+        [
+          {
+            "node": "Mark Location Scraping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Apify Actor": {
+      "main": [
+        [
+          {
+            "node": "Mark Location Scraping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "75nGTzEeTlBQmlys",
+    "executionTimeout": 300,
+    "maxConcurrencyLevel": 1
+  }
+}

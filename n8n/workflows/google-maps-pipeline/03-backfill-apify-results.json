@@ -1,0 +1,578 @@
+{
+  "id": "UnsVgD4lAxaiDzCY",
+  "name": "03 - Google Maps Pipeline - Backfill Apify Results",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.apify.com/v2/acts/compass~crawler-google-places/runs?limit=1000&desc=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "id": "get-all-runs",
+      "name": "Get All Apify Runs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        80
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "H7EaKB5yYzqhBgZ8",
+          "name": "Apify"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const apifyResponse = $(\"Get All Apify Runs\").first().json;\nconst runs = apifyResponse.data?.items || [];\nconst succeeded = runs.filter(run => run.status === 'SUCCEEDED');\n\n// HTTP node returns each array element as separate item\nconst existingRunItems = $(\"HTTP Get Scraped Locations\").all();\nconst processedIds = new Set(existingRunItems.map(item => item.json.apify_run_id));\n\nconst newRuns = succeeded.filter(run => !processedIds.has(run.id));\n\nif (newRuns.length === 0) {\n  throw new Error(\n    `No new runs to process. ${succeeded.length} succeeded, ${processedIds.size} already in locations.`\n  );\n}\n\nreturn newRuns.map(run => ({\n  json: {\n    runId: run.id,\n    datasetId: run.defaultDatasetId,\n    startedAt: run.startedAt,\n    finishedAt: run.finishedAt\n  }\n}));"
+      },
+      "id": "filter-succeeded",
+      "name": "Filter New Runs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop-runs",
+      "name": "Loop Over Runs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1104,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $json.runId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "id": "get-run-details",
+      "name": "Get Run Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "H7EaKB5yYzqhBgZ8",
+          "name": "Apify"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/datasets/{{ $('Loop Over Runs').first().json.datasetId }}/items?limit=1",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "id": "get-first-dataset-item",
+      "name": "Get First Dataset Item",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "H7EaKB5yYzqhBgZ8",
+          "name": "Apify"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const loopItem = $('Loop Over Runs').first().json;\nconst runId = loopItem.runId;\nconst datasetId = loopItem.datasetId;\n\n// Get searchString from dataset item (first item)\nconst datasetItem = $input.first().json;\nconst searchString = datasetItem.searchString || '';\n\n// Parse searchString: \"Suchbegriff Stadt Land\"\nconst parts = searchString.trim().split(/\\s+/);\n\nlet query = '';\nlet city = '';\nlet country = '';\n\nif (parts.length >= 3) {\n  country = parts[parts.length - 1];\n  city = parts[parts.length - 2];\n  query = parts.slice(0, -2).join(' ');\n} else if (parts.length === 2) {\n  query = parts[0];\n  city = parts[1];\n  country = 'Unknown';\n} else if (parts.length === 1) {\n  query = parts[0];\n  city = 'Unknown';\n  country = 'Unknown';\n}\n\nreturn [{\n  json: {\n    runId,\n    datasetId,\n    searchString,\n    query: query || 'Unknown',\n    city: city || 'Unknown',\n    country: country || 'Unknown'\n  }\n}];"
+      },
+      "id": "parse-search-string",
+      "name": "Parse Search String",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              },
+              "id": "location-exists"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "location-exists-check",
+      "name": "Location Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// HTTP Find Location returns array as items - first item is the found location\nconst locationData = $input.first().json;\nconst parseData = $('Parse Search String').first().json;\n\nreturn [{\n  json: {\n    locationId: locationData.id,\n    runId: parseData.runId,\n    datasetId: parseData.datasetId,\n    query: parseData.query,\n    city: parseData.city,\n    country: parseData.country\n  }\n}];"
+      },
+      "id": "use-existing-location",
+      "name": "Use Existing Location",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// HTTP Create Location returns array as items - first item is the created location\nconst newLocation = $input.first().json;\nconst parseData = $('Parse Search String').first().json;\n\nreturn [{\n  json: {\n    locationId: newLocation.id,\n    runId: parseData.runId,\n    datasetId: parseData.datasetId,\n    query: parseData.query,\n    city: parseData.city,\n    country: parseData.country\n  }\n}];"
+      },
+      "id": "use-new-location",
+      "name": "Use New Location",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2448,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "59tTad4B9Ryv2O67"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "execute-import",
+      "name": "Execute Import Workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2896,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "await new Promise(resolve => setTimeout(resolve, 1000));\nreturn $input.all();"
+      },
+      "id": "wait-1s",
+      "name": "Wait 1s",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        880,
+        80
+      ],
+      "id": "9b82658a-154e-410f-83a3-cb3b951f9861",
+      "name": "Limit"
+    },
+    {
+      "id": "http-get-existing-runs",
+      "name": "HTTP Get Scraped Locations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        180
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?apify_run_id=not.is.null&select=apify_run_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http-find-location",
+      "name": "HTTP Find Location",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1776,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?country=eq.{{ encodeURIComponent($json.country) }}&city=eq.{{ encodeURIComponent($json.city) }}&query=eq.{{ encodeURIComponent($json.query) }}&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "http-create-location",
+      "name": "HTTP Create Location",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2224,
+        180
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"country\": {{ JSON.stringify($('Parse Search String').item.json.country) }},\n  \"city\": {{ JSON.stringify($('Parse Search String').item.json.city) }},\n  \"query\": {{ JSON.stringify($('Parse Search String').item.json.query) }}\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "http-create-scrape-run",
+      "name": "Mark Location Running",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2672,
+        100
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?id=eq.{{ $json.locationId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"apify_run_id\": {{ JSON.stringify($json.runId) }},\n  \"scrape_status\": \"running\",\n  \"scraped_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get All Apify Runs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Apify Runs": {
+      "main": [
+        [
+          {
+            "node": "HTTP Get Scraped Locations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Get Scraped Locations": {
+      "main": [
+        [
+          {
+            "node": "Filter New Runs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter New Runs": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Runs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Runs": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get Run Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Run Details": {
+      "main": [
+        [
+          {
+            "node": "Get First Dataset Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get First Dataset Item": {
+      "main": [
+        [
+          {
+            "node": "Parse Search String",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Search String": {
+      "main": [
+        [
+          {
+            "node": "HTTP Find Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Find Location": {
+      "main": [
+        [
+          {
+            "node": "Location Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Location Exists?": {
+      "main": [
+        [
+          {
+            "node": "Use Existing Location",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Create Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Existing Location": {
+      "main": [
+        [
+          {
+            "node": "Mark Location Running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Create Location": {
+      "main": [
+        [
+          {
+            "node": "Use New Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use New Location": {
+      "main": [
+        [
+          {
+            "node": "Mark Location Running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Location Running": {
+      "main": [
+        [
+          {
+            "node": "Execute Import Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Import Workflow": {
+      "main": [
+        [
+          {
+            "node": "Wait 1s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1s": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Runs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

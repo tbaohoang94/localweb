@@ -1,0 +1,277 @@
+{
+  "name": "07 - Close CRM Sync - Sync Activity Types Supabase (Legacy)",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "trigger-001",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://api.close.com/api/v1/custom_activity/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "http-001",
+      "name": "Get Custom Activity Types",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "CMKlMKH6HfiVIn5e",
+          "name": "Close.io"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "id": "split-001",
+      "name": "Split Activity Types"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "close_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "name",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "description",
+              "value": "={{ $json.description }}",
+              "type": "string"
+            },
+            {
+              "id": "4",
+              "name": "api_create_only",
+              "value": "={{ $json.api_create_only }}",
+              "type": "boolean"
+            },
+            {
+              "id": "5",
+              "name": "is_archived",
+              "value": "={{ $json.is_archived }}",
+              "type": "boolean"
+            },
+            {
+              "id": "6",
+              "name": "fields_json",
+              "value": "={{ JSON.stringify($json.fields) }}",
+              "type": "string"
+            },
+            {
+              "id": "7",
+              "name": "organization_id",
+              "value": "={{ $json.organization_id }}",
+              "type": "string"
+            },
+            {
+              "id": "8",
+              "name": "created_by",
+              "value": "={{ $json.created_by }}",
+              "type": "string"
+            },
+            {
+              "id": "9",
+              "name": "updated_by",
+              "value": "={{ $json.updated_by }}",
+              "type": "string"
+            },
+            {
+              "id": "10",
+              "name": "close_date_created",
+              "value": "={{ $json.date_created }}",
+              "type": "string"
+            },
+            {
+              "id": "11",
+              "name": "close_date_updated",
+              "value": "={{ $json.date_updated }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        660,
+        0
+      ],
+      "id": "set-001",
+      "name": "Map Fields"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/activity_types",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "close_id",
+              "value": "={{ $json.close_id }}"
+            },
+            {
+              "name": "name",
+              "value": "={{ $json.name }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $json.description }}"
+            },
+            {
+              "name": "api_create_only",
+              "value": "={{ $json.api_create_only }}"
+            },
+            {
+              "name": "is_archived",
+              "value": "={{ $json.is_archived }}"
+            },
+            {
+              "name": "fields_json",
+              "value": "={{ $json.fields_json }}"
+            },
+            {
+              "name": "organization_id",
+              "value": "={{ $json.organization_id }}"
+            },
+            {
+              "name": "created_by",
+              "value": "={{ $json.created_by }}"
+            },
+            {
+              "name": "updated_by",
+              "value": "={{ $json.updated_by }}"
+            },
+            {
+              "name": "close_date_created",
+              "value": "={{ $json.close_date_created }}"
+            },
+            {
+              "name": "close_date_updated",
+              "value": "={{ $json.close_date_updated }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "id": "supabase-001",
+      "name": "Upsert to Supabase",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "supabase-header-auth",
+          "name": "Supabase Header Auth"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Custom Activity Types",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Custom Activity Types": {
+      "main": [
+        [
+          {
+            "node": "Split Activity Types",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Activity Types": {
+      "main": [
+        [
+          {
+            "node": "Map Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Fields": {
+      "main": [
+        [
+          {
+            "node": "Upsert to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [],
+  "id": "Sp6rYcpECarSO6vy"
+}

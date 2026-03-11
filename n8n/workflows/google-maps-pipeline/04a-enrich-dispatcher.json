@@ -1,0 +1,318 @@
+{
+  "id": "qFqHqkg2nsX3jP59",
+  "name": "04a - Google Maps Pipeline - Enrich Dispatcher",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 288]
+    },
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 496],
+      "webhookId": "test-wf04a",
+      "parameters": {
+        "path": "test-wf04a",
+        "httpMethod": "POST",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.failed_enrich&retry_count=lt.3&updated_at=lt.{{ $now.minus({minutes: 30}).toISO() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"pipeline_stage\": \"qualified\", \"last_error\": null}",
+        "options": {}
+      },
+      "id": "auto-retry",
+      "name": "Auto-Retry Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 288],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.qualified&website=is.null",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"pipeline_stage\": \"enriched\", \"website_summary\": \"Keine Website vorhanden\", \"enriched_at\": {{ JSON.stringify($now.toISO()) }}}",
+        "options": {}
+      },
+      "id": "mark-no-website",
+      "name": "Mark No-Website Enriched",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [448, 100],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.enriching&updated_at=lt.{{ $now.minus({minutes: 30}).toISO() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"pipeline_stage\": \"failed_enrich\", \"last_error\": \"Timeout nach 30 Min\"}",
+        "options": {}
+      },
+      "id": "reset-stuck",
+      "name": "Reset Stuck Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [448, 288]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.enriching&select=id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "count-inflight",
+      "name": "Count In-Flight",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, 288],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst inFlight = (items.length === 1 && !items[0].json.id) ? 0 : items.length;\nconst MAX_IN_FLIGHT = 50;\nconst slots = Math.max(0, MAX_IN_FLIGHT - inFlight);\nreturn [{ json: { inFlight, slots } }];"
+      },
+      "id": "calc-slots",
+      "name": "Calculate Slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [896, 288]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.slots }}",
+              "rightValue": "0",
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "has-slots",
+      "name": "Has Slots?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1120, 288]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?pipeline_stage=eq.qualified&website=not.is.null&permanently_closed=neq.true&website=not.like.*facebook.com*&website=not.like.*instagram.com*&website=not.like.*twitter.com*&website=not.like.*tiktok.com*&website=not.like.*linkedin.com*&website=not.like.*youtube.com*&select=id,name,website,place_id,retry_count&limit={{ $json.slots }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-batch",
+      "name": "Get Batch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1344, 288],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.id ? 1 : 0 }}",
+              "rightValue": "0",
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "check-items",
+      "name": "Has Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1568, 288]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "loop",
+      "name": "Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1792, 288]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id=eq.{{ $json.id }}&select=id,name,website,place_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"pipeline_stage\": \"enriching\"}",
+        "options": {}
+      },
+      "id": "mark-enriching",
+      "name": "Mark Enriching",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2016, 500]
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "heraaLvlLKybMM63" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": { "waitForSubWorkflow": false }
+      },
+      "id": "fire-worker",
+      "name": "Fire Worker",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [2240, 500]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Auto-Retry Failed", "type": "main", "index": 0 }]]
+    },
+    "Webhook Trigger": {
+      "main": [[{ "node": "Auto-Retry Failed", "type": "main", "index": 0 }]]
+    },
+    "Auto-Retry Failed": {
+      "main": [[{ "node": "Mark No-Website Enriched", "type": "main", "index": 0 }]]
+    },
+    "Mark No-Website Enriched": {
+      "main": [[{ "node": "Reset Stuck Items", "type": "main", "index": 0 }]]
+    },
+    "Reset Stuck Items": {
+      "main": [[{ "node": "Count In-Flight", "type": "main", "index": 0 }]]
+    },
+    "Count In-Flight": {
+      "main": [[{ "node": "Calculate Slots", "type": "main", "index": 0 }]]
+    },
+    "Calculate Slots": {
+      "main": [[{ "node": "Has Slots?", "type": "main", "index": 0 }]]
+    },
+    "Has Slots?": {
+      "main": [
+        [{ "node": "Get Batch", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Get Batch": {
+      "main": [[{ "node": "Has Items?", "type": "main", "index": 0 }]]
+    },
+    "Has Items?": {
+      "main": [
+        [{ "node": "Loop", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Loop": {
+      "main": [
+        [],
+        [{ "node": "Mark Enriching", "type": "main", "index": 0 }]
+      ]
+    },
+    "Mark Enriching": {
+      "main": [[{ "node": "Fire Worker", "type": "main", "index": 0 }]]
+    },
+    "Fire Worker": {
+      "main": [[{ "node": "Loop", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "75nGTzEeTlBQmlys",
+    "executionTimeout": 300,
+    "maxConcurrencyLevel": 1
+  }
+}

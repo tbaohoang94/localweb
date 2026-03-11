@@ -1,0 +1,12 @@
+# Caddy Reverse Proxy fuer n8n (Produktion)
+#
+# HINWEIS: Dieses Caddyfile wird von einem EXTERNEN Caddy-Container gelesen,
+# der nicht in docker-compose.prod.yml definiert ist. Caddy laeuft separat
+# auf dem Hetzner-Server und muss im selben Docker-Netzwerk "caddy_net" sein.
+#
+# Lokale Entwicklung nutzt dieses File NICHT — n8n ist direkt auf
+# http://localhost:5678 erreichbar.
+
+n8n.hoba-consulting.com {
+    reverse_proxy n8n:5678
+}

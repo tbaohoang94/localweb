@@ -1,0 +1,446 @@
+{
+  "name": "30 - DocuSeal Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "docuseal-webhook",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-30",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "docuseal-webhook-30"
+    },
+    {
+      "parameters": {
+        "jsCode": "// DocuSeal Webhook Payload routen\nconst body = $json.body || $json;\nconst eventType = body.event_type || '';\nconst data = body.data || {};\n\n// Submitter-Email (wer das Event ausgeloest hat)\nconst submitterEmail = (data.email || '').toLowerCase().trim();\n\n// --- EMAIL WHITELIST ---\n// Nur Events von diesen Emails durchlassen\nconst allowedEmails = [\n  'bao.hoang@localweb.de',\n  'tbaohoang94@gmail.com'\n];\n\nif (!allowedEmails.includes(submitterEmail)) {\n  // Email nicht in Whitelist — Workflow stoppen\n  return [];\n}\n// --- ENDE WHITELIST ---\n\n// Template-ID aus verschiedenen moeglichen Positionen lesen\nconst templateId = data.submission?.template?.id\n  || data.template?.id\n  || 0;\n\nconst submitterRole = data.role || '';\n\n// DocuSeal Webhook feuert PRO Submitter, nicht pro Submission.\n// data.email IST der aktuelle Submitter.\n// Fuer Create Submission: die Email des aktuellen Submitters verwenden.\nconst secondPartyEmail = submitterEmail;\n\n// Dokument-URLs sammeln\nconst documents = data.documents || [];\nconst documentUrls = documents.map(d => d.url).filter(Boolean);\nconst documentNames = documents.map(d => d.name || 'Dokument').filter(Boolean);\n\n// Routing-Logik\nlet route = '';\nif (eventType === 'form.completed') {\n  if (templateId === 431151) {\n    route = 'send_email';\n  } else {\n    route = 'create_submission';\n  }\n} else if (eventType === 'form.viewed') {\n  route = 'update_viewed';\n} else {\n  return [];\n}\n\nreturn [{ json: {\n  _route: route,\n  eventType,\n  templateId,\n  submitterEmail,\n  submitterRole,\n  secondPartyEmail,\n  documentUrls,\n  documentNames,\n  submissionId: data.submission_id || data.submission?.id || 0,\n  rawData: data\n}}];"
+      },
+      "id": "route-30",
+      "name": "Route Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-create",
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "create_submission",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "create_submission"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-email",
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "send_email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "send_email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-viewed",
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "update_viewed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "update_viewed"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "switch-30",
+      "name": "Switch Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.docuseal.eu/submissions",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "={{ $env.DOCUSEAL_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ template_id: 431151, send_email: true, submitters: [{ role: 'First Party', email: $json.secondPartyEmail }] }) }}",
+        "options": {}
+      },
+      "id": "create-sub-30",
+      "name": "Create Submission 431151",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_30_docuseal', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to create submission').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-sub-30",
+      "name": "Log Submission Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "fromEmail": "bao.hoang@localweb.de",
+        "toEmail": "tbaohoang94@gmail.de",
+        "subject": "Dokument unterschrieben - DocuSeal",
+        "emailType": "text",
+        "message": "=Hallo,\n\nein Dokument wurde vollstaendig unterschrieben.\n\nDokument-Links:\n{{ $json.documentUrls.map((url, i) => (i+1) + '. ' + ($json.documentNames[i] || 'Dokument') + ': ' + url).join('\\n') }}\n\nSubmission-ID: {{ $json.submissionId }}\nEmail: {{ $json.submitterEmail }}\n\nGruss,\nn8n Automation",
+        "options": {}
+      },
+      "id": "email-30",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        780,
+        300
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "iBtNZwUPeBcnCSwj",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.close.com/api/v1/lead/?query=email%3A{{ encodeURIComponent($json.submitterEmail) }}&_fields=id&_limit=50",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "search-lead-30",
+      "name": "Search Lead by Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        500
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aus der Lead-Suche alle Lead-IDs extrahieren und Opps holen\nconst searchResult = $json;\nconst leads = searchResult.data || [];\n\nif (leads.length === 0) {\n  return [];\n}\n\nconst leadIds = leads.map(l => l.id);\nconst allOpps = [];\n\nfor (const leadId of leadIds) {\n  try {\n    const oppResp = await this.helpers.httpRequest({\n      method: 'GET',\n      url: 'https://api.close.com/api/v1/opportunity/?lead_id=' + leadId + '&status_type=active&_limit=100',\n      headers: {\n        'Authorization': 'Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=',\n        'Accept': 'application/json'\n      },\n      timeout: 30000\n    });\n\n    const opps = (typeof oppResp === 'string' ? JSON.parse(oppResp) : oppResp).data || [];\n    for (const opp of opps) {\n      allOpps.push({ oppId: opp.id, leadId });\n    }\n  } catch (e) {\n    // Fehler loggen aber weitermachen\n  }\n}\n\nif (allOpps.length === 0) {\n  return [];\n}\n\nreturn allOpps.map(o => ({ json: o }));"
+      },
+      "id": "extract-opps-30",
+      "name": "Get All Active Opportunities",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/opportunity/{{ $json.oppId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ 'custom.cf_67OeGanoQ5cibCfWXUdC0pMwk2fZZJHJRbAOB97xJDT': new Date().toISOString().split('T')[0] }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 500
+            }
+          }
+        }
+      },
+      "id": "update-opp-30",
+      "name": "Update Opp Angebot Geoeffnet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        500
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_30_docuseal_viewed', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to update opportunity').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-opp-30",
+      "name": "Log Opp Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        600
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Route Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Event": {
+      "main": [
+        [
+          {
+            "node": "Switch Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Route": {
+      "main": [
+        [
+          {
+            "node": "Create Submission 431151",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search Lead by Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Submission 431151": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Submission Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Lead by Email": {
+      "main": [
+        [
+          {
+            "node": "Get All Active Opportunities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Active Opportunities": {
+      "main": [
+        [
+          {
+            "node": "Update Opp Angebot Geoeffnet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Opp Angebot Geoeffnet": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Opp Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "active": true
+}

@@ -1,0 +1,382 @@
+{
+  "name": "27 - Close CRM Sync - Kunde Gewonnen",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-27",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.close.com/api/v1/opportunity/?lead_id={{ $json.leadId }}&status_type=active&_limit=1&_order_by=-date_created",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "get-opp-27",
+      "name": "Get Active Opportunity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Execute Workflow Trigger').first().json;\nconst oppResponse = $json;\nconst opportunities = oppResponse.data || [];\n\nif (opportunities.length === 0) {\n  return [];\n}\n\nreturn [{ json: { ...input, oppId: opportunities[0].id } }];"
+      },
+      "id": "extract-opp-27",
+      "name": "Extract Opportunity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/opportunity/{{ $json.oppId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status_id: 'stat_whEM29RxVUWk9pucJMWhPtBrjjadPn4DzUsYxV06bCs' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "put-opp-won-27",
+      "name": "Set Opportunity Won",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Extract Opportunity').first().json;\nreturn [{ json: input }];"
+      },
+      "id": "passthrough-27",
+      "name": "Pass Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/lead/{{ $json.leadId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status_id: 'stat_xVE9fp5WUCcKrnJRFVWzIZb1tlbNHYojeIJw1CMS7HI' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "put-lead-27",
+      "name": "Set Lead Kunde",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// E-Mail via SMTP senden (Hetzner Mailserver)\nconst input = $('Execute Workflow Trigger').first().json;\nconst leadId = input.leadId || 'unbekannt';\nconst activityId = input.activityId || 'unbekannt';\n\nconst smtpHost = 'mail.your-server.de';\nconst smtpPort = 587;\nconst smtpUser = 'bao.hoang@localweb.de';\nconst smtpPass = 'rXb67d64R91BeP1n';\n\n// Base64-Encode fuer SMTP AUTH\nconst authString = Buffer.from('\\u0000' + smtpUser + '\\u0000' + smtpPass).toString('base64');\n\n// E-Mail Inhalt\nconst subject = 'Neuer Kunde gewonnen - ' + leadId;\nconst body = 'Ein neuer Kunde wurde gewonnen.\\n\\nLead ID: ' + leadId + '\\nActivity ID: ' + activityId + '\\n\\nDie Opportunity wurde auf Won gesetzt und der Lead Status auf Kunde aktualisiert.\\n\\nDiese E-Mail wurde automatisch erstellt.';\n\n// MIME-Nachricht\nconst mimeMessage = [\n  'From: bao.hoang@localweb.de',\n  'To: bao.hoang@localweb.de',\n  'Subject: ' + subject,\n  'MIME-Version: 1.0',\n  'Content-Type: text/plain; charset=UTF-8',\n  '',\n  body\n].join('\\r\\n');\n\n// Einfacher SMTP-Client via TCP (net module nicht verfuegbar in Task Runner)\n// Stattdessen: HTTP-Fallback — Log und weitermachen\n// TODO: SMTP Credential in n8n erstellen und emailSend Node verwenden\n\nreturn [{ json: { emailSent: false, reason: 'SMTP requires n8n credential — see workflow notes', subject, to: 'bao.hoang@localweb.de', leadId, activityId } }];"
+      },
+      "id": "email-27",
+      "name": "Send Email Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        100
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: '27-kunde-gewonnen', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to get opportunity').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-log-27-get",
+      "name": "Log Get Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        500
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: '27-kunde-gewonnen', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to set opportunity won').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-log-27-opp",
+      "name": "Log Opp Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: '27-kunde-gewonnen', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to set lead status Kunde').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-log-27-lead",
+      "name": "Log Lead Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Active Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Extract Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Get Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Opportunity": {
+      "main": [
+        [
+          {
+            "node": "Set Opportunity Won",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Opportunity Won": {
+      "main": [
+        [
+          {
+            "node": "Pass Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Opp Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Set Lead Kunde",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Lead Kunde": {
+      "main": [
+        [
+          {
+            "node": "Send Email Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Lead Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  },
+  "id": "9GG7yBEefplT3uwu"
+}

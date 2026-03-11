@@ -1,0 +1,124 @@
+{
+  "name": "09 - Google Maps Pipeline - Daily Digest",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 8 * * *" }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/system_logs_summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-logs-summary",
+      "name": "Fetch Logs Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 200],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/pipeline_errors",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-pipeline-errors",
+      "name": "Fetch Pipeline Errors",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 400],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const logsSummary = $('Fetch Logs Summary').all().map(i => i.json);\nconst pipelineErrors = $('Fetch Pipeline Errors').all().map(i => i.json);\n\nconst criticalCount = logsSummary.filter(l => l.severity === 'critical').reduce((sum, l) => sum + (l.log_count || 0), 0);\nconst errorCount = logsSummary.filter(l => l.severity === 'error').reduce((sum, l) => sum + (l.log_count || 0), 0);\nconst warningCount = logsSummary.filter(l => l.severity === 'warning').reduce((sum, l) => sum + (l.log_count || 0), 0);\n\nconst stuckLocations = pipelineErrors.filter(e => e.entity_type === 'location').length;\nconst failedBusinesses = pipelineErrors.filter(e => e.entity_type === 'business').length;\n\nlet statusEmoji = '✅';\nif (criticalCount > 0) statusEmoji = '🔴';\nelse if (errorCount > 0) statusEmoji = '🟡';\n\nconst logsTable = logsSummary.map(l => \n  `<tr><td>${l.source}</td><td>${l.severity}</td><td>${l.log_count}</td><td>${l.last_occurrence ? new Date(l.last_occurrence).toLocaleString('de-DE') : '-'}</td></tr>`\n).join('');\n\nconst errorsTable = pipelineErrors.slice(0, 20).map(e =>\n  `<tr><td>${e.entity_type}</td><td>${e.name}</td><td>${e.stage}</td><td>${e.retry_count}</td><td>${(e.last_error || '').substring(0, 80)}</td></tr>`\n).join('');\n\nreturn [{\n  json: {\n    statusEmoji,\n    criticalCount,\n    errorCount,\n    warningCount,\n    stuckLocations,\n    failedBusinesses,\n    logsTable,\n    errorsTable,\n    totalPipelineErrors: pipelineErrors.length\n  }\n}];"
+      },
+      "id": "build-digest",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "toEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "subject": "={{ $json.statusEmoji }} Daily Digest — Google Maps Pipeline",
+        "emailFormat": "html",
+        "html": "=<div style=\"font-family: -apple-system, sans-serif; max-width: 700px;\">\n  <h2>{{ $json.statusEmoji }} Tagesbericht — {{ $now.setZone('Europe/Berlin').toFormat('dd.MM.yyyy') }}</h2>\n  \n  <h3>System Logs (letzte 24h)</h3>\n  <table style=\"width: 100%; border-collapse: collapse; font-size: 13px;\">\n    <tr style=\"background: #f3f4f6;\"><th style=\"padding: 6px; text-align: left;\">Quelle</th><th>Severity</th><th>Anzahl</th><th>Letztes Ereignis</th></tr>\n    {{ $json.logsTable || '<tr><td colspan=\"4\" style=\"padding: 6px; color: #9ca3af;\">Keine Eintraege</td></tr>' }}\n  </table>\n  \n  <h3 style=\"margin-top: 20px;\">Pipeline-Fehler</h3>\n  <p>Stuck Locations: <strong>{{ $json.stuckLocations }}</strong> | Failed Businesses: <strong>{{ $json.failedBusinesses }}</strong></p>\n  {{ $json.totalPipelineErrors > 0 ? '<table style=\"width: 100%; border-collapse: collapse; font-size: 13px;\"><tr style=\"background: #f3f4f6;\"><th style=\"padding: 6px; text-align: left;\">Typ</th><th>Name</th><th>Stage</th><th>Retries</th><th>Fehler</th></tr>' + $json.errorsTable + '</table>' : '<p style=\"color: #22c55e;\">Keine Pipeline-Fehler</p>' }}\n  \n  <p style=\"color: #9ca3af; font-size: 11px; margin-top: 24px;\">Google Maps Lead Pipeline — Daily Digest</p>\n</div>",
+        "options": {}
+      },
+      "id": "send-digest",
+      "name": "Send Digest Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [672, 300],
+      "credentials": {
+        "smtp": {
+          "id": "iBtNZwUPeBcnCSwj",
+          "name": "SMTP account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Daily 08:00": {
+      "main": [
+        [
+          { "node": "Fetch Logs Summary", "type": "main", "index": 0 },
+          { "node": "Fetch Pipeline Errors", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Logs Summary": {
+      "main": [
+        [
+          { "node": "Build Digest", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Pipeline Errors": {
+      "main": [
+        [
+          { "node": "Build Digest", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          { "node": "Send Digest Email", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
