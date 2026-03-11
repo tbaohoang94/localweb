@@ -1,0 +1,88 @@
+{
+  "id": "OrTCUp8ufHjtmIcm",
+  "name": "Error Logger",
+  "active": true,
+  "nodes": [
+    {
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "chat-trigger-error",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 256],
+      "webhookId": "error-logger-test"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse chat input for test error\nconst chatInput = $input.first()?.json?.chatInput || '';\nlet testError = {\n  execution: {\n    id: 'test-execution',\n    lastNodeExecuted: 'Test Node',\n    error: { message: chatInput || 'Test error message' }\n  },\n  workflow: {\n    id: 'test-workflow',\n    name: 'Test Workflow'\n  }\n};\n\nreturn [{ json: testError }];"
+      },
+      "id": "parse-chat-error",
+      "name": "Parse Chat Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 256]
+    },
+    {
+      "id": "extract-error",
+      "name": "Extract Error Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "parameters": {
+        "jsCode": "const error = $input.first().json;\n\nconst execution = error.execution || {};\nconst workflow = error.workflow || {};\nconst lastNode = execution.lastNodeExecuted || 'Unknown';\n\nlet errorMessage = 'Unknown error';\nlet inputData = null;\n\ntry {\n  if (execution.error?.message) {\n    errorMessage = execution.error.message;\n  } else if (typeof error.message === 'string') {\n    errorMessage = error.message;\n  }\n} catch (e) {\n  errorMessage = JSON.stringify(error).substring(0, 1000);\n}\n\ntry {\n  const nodeData = execution.data?.resultData?.runData?.[lastNode];\n  if (nodeData && nodeData[0]?.data?.main?.[0]?.[0]) {\n    inputData = nodeData[0].data.main[0][0].json;\n  }\n} catch (e) {\n  inputData = { error: 'Could not extract input data' };\n}\n\nreturn [{\n  json: {\n    workflow_name: workflow.name || 'Unknown',\n    workflow_id: workflow.id || '',\n    node_name: lastNode,\n    error_message: errorMessage,\n    execution_id: execution.id || '',\n    severity: 'Error',\n    input_data: inputData\n  }\n}];"
+      }
+    },
+    {
+      "id": "write-error-log",
+      "name": "Write to Error Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/error_logs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "SUPABASE_HTTP_CREDENTIAL_ID", "name": "Supabase API" }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [[{ "node": "Extract Error Data", "type": "main", "index": 0 }]]
+    },
+    "Chat Trigger": {
+      "main": [[{ "node": "Parse Chat Input", "type": "main", "index": 0 }]]
+    },
+    "Parse Chat Input": {
+      "main": [[{ "node": "Extract Error Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Error Data": {
+      "main": [[{ "node": "Write to Error Log", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1", "callerPolicy": "workflowsFromSameOwner" }
+}

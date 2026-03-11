@@ -1,0 +1,220 @@
+{
+  "name": "25-sg-noshow",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-25",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json;\nconst ergebnis = (input.customFields || {})['custom.cf_1jQaceRH6hI9L0W635q7xDopqEbAbPyIy2RkOLPfk8o'] || '';\n\n// '2 - Absage mit neuem Termin' → skip\nif (ergebnis === '2 - Absage mit neuem Termin' || !ergebnis) {\n  return [{ json: { ...input, _skip: true, _reason: 'Ergebnis maps to no action: ' + ergebnis } }];\n}\n\nreturn [{ json: { ...input, _skip: false, ergebnis } }];"
+      },
+      "id": "resolve-25",
+      "name": "Resolve Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "skip-check-25",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "if-25",
+      "name": "Should Update?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.close.com/api/v1/opportunity/?lead_id={{ $json.leadId }}&status_type=active&_limit=1&_order_by=-date_created",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": false } }
+        }
+      },
+      "id": "get-opp-25",
+      "name": "Get Active Opportunity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Resolve Ergebnis').first().json;\nconst oppResponse = $json;\nconst opportunities = oppResponse.data || [];\n\nif (opportunities.length === 0) {\n  return [{ json: { ...input, _skip: true, _reason: 'No active opportunity found' } }];\n}\n\nconst oppId = opportunities[0].id;\nconst ergebnis = input.ergebnis;\n\nlet body = {};\n\nif (ergebnis === '1 - Absage ohne neuen Termin') {\n  body = { 'custom.cf_30D240z87Zko9PKJucdQabdhPNryXzHdmiASz2ABOuo': 'No Show' };\n} else if (ergebnis === '3 - Komplette Absage') {\n  body = { status_id: 'stat_2NjdTtgLsl931S2nrmOLTK7IWW7KV0JVsiTwS7zexT4' };\n}\n\nreturn [{ json: { ...input, _skip: false, oppId, updateBody: body } }];"
+      },
+      "id": "prepare-25",
+      "name": "Prepare Opp Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "skip-check-25b",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "if-opp-25",
+      "name": "Has Opportunity?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/opportunity/{{ $json.oppId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.updateBody) }}",
+        "options": {
+          "response": { "response": { "fullResponse": false } }
+        }
+      },
+      "id": "put-opp-25",
+      "name": "Update Opportunity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 100],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: '25-sg-noshow', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to update opportunity').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-log-25-opp",
+      "name": "Log Opp Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 250],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: '25-sg-noshow', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to get opportunity').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-log-25-get",
+      "name": "Log Get Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 450],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Resolve Ergebnis", "type": "main", "index": 0 }]]
+    },
+    "Resolve Ergebnis": {
+      "main": [[{ "node": "Should Update?", "type": "main", "index": 0 }]]
+    },
+    "Should Update?": {
+      "main": [
+        [{ "node": "Get Active Opportunity", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Get Active Opportunity": {
+      "main": [
+        [{ "node": "Prepare Opp Update", "type": "main", "index": 0 }],
+        [{ "node": "Log Get Error to Supabase", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Opp Update": {
+      "main": [[{ "node": "Has Opportunity?", "type": "main", "index": 0 }]]
+    },
+    "Has Opportunity?": {
+      "main": [
+        [{ "node": "Update Opportunity", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Update Opportunity": {
+      "main": [
+        [],
+        [{ "node": "Log Opp Error to Supabase", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

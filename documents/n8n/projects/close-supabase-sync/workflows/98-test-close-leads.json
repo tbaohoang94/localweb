@@ -1,0 +1,151 @@
+{
+  "id": "84vlJnVFAXtXVYev",
+  "name": "98-test-close-leads",
+  "nodes": [
+    {
+      "id": "form-trigger-98",
+      "name": "Test Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [0, 300],
+      "parameters": {
+        "formTitle": "Test Close Leads Search",
+        "formDescription": "Close Leads via /api/v1/data/search/ mit Advanced Filtering + Cursor-Pagination.",
+        "responseMode": "lastNode",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Since (ISO)",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "2026-02-17T00:00:00Z"
+            },
+            {
+              "fieldLabel": "Until (ISO, optional)",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "2026-02-18T00:00:00Z"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "init-98",
+      "name": "Init",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst since = item['Since (ISO)'];\nconst until = item['Until (ISO, optional)'] || new Date().toISOString();\nreturn [{ json: { since, until, cursor: '' } }];"
+      }
+    },
+    {
+      "id": "build-req-98",
+      "name": "Build Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst body = {\n  query: {\n    type: 'and',\n    queries: [\n      { type: 'object_type', object_type: 'lead' },\n      {\n        type: 'field_condition',\n        field: { type: 'regular_field', object_type: 'lead', field_name: 'date_created' },\n        condition: { type: 'moment_range', gte: data.since, lte: data.until }\n      }\n    ]\n  },\n  sort: [{\n    direction: 'desc',\n    field: { object_type: 'lead', type: 'regular_field', field_name: 'date_created' }\n  }],\n  _fields: { lead: ['id', 'display_name', 'status_label', 'date_created'] },\n  _limit: 100,\n  results_limit: 10000\n};\nif (data.cursor) body.cursor = data.cursor;\nreturn [{ json: { requestBody: JSON.stringify(body), since: data.since, until: data.until } }];"
+      }
+    },
+    {
+      "id": "fetch-98",
+      "name": "Search Close Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.close.com/api/v1/data/search/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "process-98",
+      "name": "Process Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst leads = response.data || [];\nconst cursor = response.cursor || null;\n\nconst prev = $('Process Page').isExecuted\n  ? $('Process Page').first().json\n  : { collectedLeads: [], since: $('Build Body').first().json.since, until: $('Build Body').first().json.until };\n\nconst allLeads = prev.collectedLeads.concat(leads.map(l => ({\n  id: l.id, name: l.display_name, status: l.status_label, date_created: l.date_created\n})));\n\nconst hasMore = cursor !== null && cursor !== undefined && leads.length > 0;\n\nreturn [{ json: {\n  collectedLeads: allLeads,\n  totalFound: allLeads.length,\n  pageLeads: leads.length,\n  hasMore,\n  cursor: cursor || '',\n  since: prev.since,\n  until: prev.until,\n  stoppedBecause: hasMore ? 'continuing' : (leads.length === 0 ? 'no_results' : 'last_page')\n} }];"
+      }
+    },
+    {
+      "id": "if-98",
+      "name": "Has More?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "result-98",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 520],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst leads = data.collectedLeads || [];\nconst first = leads[0];\nconst last = leads[leads.length - 1];\n\nconst lines = [\n  'Total Leads found: ' + data.totalFound,\n  'Since: ' + data.since,\n  'Until: ' + data.until,\n  'Stopped because: ' + data.stoppedBecause,\n  '',\n  'Newest: ' + (first ? first.date_created + ' - ' + first.name : 'none'),\n  'Oldest: ' + (last ? last.date_created + ' - ' + last.name : 'none'),\n  '',\n  '--- First 20 Leads ---'\n];\n\nleads.slice(0, 20).forEach((l, i) => {\n  lines.push((i+1) + '. ' + l.date_created + ' | ' + l.name + ' | ' + l.status);\n});\n\nif (leads.length > 20) {\n  lines.push('... and ' + (leads.length - 20) + ' more');\n}\n\nreturn [{ json: { formSubmittedText: lines.join('\\n') } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Test Form": {
+      "main": [[{ "node": "Init", "type": "main", "index": 0 }]]
+    },
+    "Init": {
+      "main": [[{ "node": "Build Body", "type": "main", "index": 0 }]]
+    },
+    "Build Body": {
+      "main": [[{ "node": "Search Close Leads", "type": "main", "index": 0 }]]
+    },
+    "Search Close Leads": {
+      "main": [[{ "node": "Process Page", "type": "main", "index": 0 }]]
+    },
+    "Process Page": {
+      "main": [[{ "node": "Has More?", "type": "main", "index": 0 }]]
+    },
+    "Has More?": {
+      "main": [
+        [{ "node": "Build Body", "type": "main", "index": 0 }],
+        [{ "node": "Format Result", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin"
+  }
+}

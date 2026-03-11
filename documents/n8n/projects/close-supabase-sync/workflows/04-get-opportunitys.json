@@ -1,0 +1,98 @@
+{
+  "id": "cQDTdw5U0TRY28Nl",
+  "name": "04-get-opportunitys",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c58ec2b3-96c1-467d-8137-2cabb7aaed0e",
+      "name": "Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [464, -96]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "chat-trigger-opportunities",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [464, 160],
+      "webhookId": "opportunities-test"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse chat input for test\nconst chatInput = $input.first()?.json?.chatInput || '';\nlet params = {};\n\ntry {\n  params = JSON.parse(chatInput);\n} catch (e) {\n  // Use defaults\n}\n\nreturn [{ json: params }];"
+      },
+      "id": "parse-chat-opportunities",
+      "name": "Parse Chat Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [688, 160]
+    },
+    {
+      "parameters": {
+        "url": "https://api.close.com/api/v1/opportunity/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "date_updated__gt", "value": "={{ $json.date_gt }}" },
+            { "name": "date_updated__lt", "value": "={{ $json.cursor }}" },
+            { "name": "_limit", "value": "100" },
+            { "name": "_order_by", "value": "date_updated" }
+          ]
+        },
+        "options": { "response": { "response": { "fullResponse": true } } }
+      },
+      "id": "c22e9548-15ce-497c-9f58-5888d8c8f34c",
+      "name": "Get Opportunities",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1360, -96],
+      "credentials": { "httpBasicAuth": { "id": "c1zqLlNCaOTBnrvH", "name": "Close.io" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/opportunities?on_conflict=close_id",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates,return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "38a255a5-291c-4e5c-8f18-52379c983e0d",
+      "name": "Upsert Opportunities",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4272, 32],
+      "credentials": {
+        "httpHeaderAuth": { "id": "SUPABASE_HTTP_CREDENTIAL_ID", "name": "Supabase API" }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Trigger": {
+      "main": [[{ "node": "If1", "type": "main", "index": 0 }]]
+    },
+    "Chat Trigger": {
+      "main": [[{ "node": "Parse Chat Input", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

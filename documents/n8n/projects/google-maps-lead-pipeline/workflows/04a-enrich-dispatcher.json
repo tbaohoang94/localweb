@@ -1,0 +1,157 @@
+{
+  "id": "qFqHqkg2nsX3jP59",
+  "name": "04a-enrich-dispatcher",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "minutes" }] } },
+      "id": "trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 288],
+      "disabled": true
+    },
+    {
+      "parameters": { "inputSource": "passthrough" },
+      "id": "wf-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 176]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?enrichment_status=eq.pending&updated_at=lt.{{ $now.minus({minutes: 30}).toISO() }}{{ (() => { try { const f = $('Execute Workflow Trigger').first().json.searchFilter; return f ? '&search_string=' + f : ''; } catch(e) { return ''; } })() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"enrichment_status\": null}",
+        "options": {}
+      },
+      "id": "reset-stuck",
+      "name": "Reset Stuck Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 288]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?website=not.is.null&enrichment_status=is.null&qualification_status=neq.unqualified&permanently_closed=neq.true{{ (() => { try { const f = $('Execute Workflow Trigger').first().json.searchFilter; return f ? '&search_string=' + f : ''; } catch(e) { return ''; } })() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"enrichment_status\": \"pending\"}",
+        "options": {}
+      },
+      "id": "mark-pending",
+      "name": "Mark All Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [448, 288]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?enrichment_status=eq.pending{{ (() => { try { const f = $('Execute Workflow Trigger').first().json.searchFilter; return f ? '&search_string=' + f : ''; } catch(e) { return ''; } })() }}&select=id,name,website,place_id&limit=200",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-page",
+      "name": "Get Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, 288],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [{ "id": "1", "leftValue": "={{ $json.id ? 1 : 0 }}", "rightValue": "0", "operator": { "type": "number", "operation": "gt" } }],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "check-items",
+      "name": "Has Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [896, 288]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "loop",
+      "name": "Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1120, 288]
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "4CacfauoGzrNDHhp" },
+        "workflowInputs": { "mappingMode": "defineBelow", "value": {}, "matchingColumns": [], "schema": [], "attemptToConvertTypes": false, "convertFieldsToString": true },
+        "mode": "each",
+        "options": { "waitForSubWorkflow": false }
+      },
+      "id": "fire-worker",
+      "name": "Fire Worker",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1344, 288]
+    },
+    {
+      "parameters": {
+        "jsCode": "await new Promise(r => setTimeout(r, 250));\nreturn $input.all().map(item => ({ json: item.json }));"
+      },
+      "id": "rate-limit",
+      "name": "Rate Limit 250ms",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, 288]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Reset Stuck Items", "type": "main", "index": 0 }]] },
+    "Execute Workflow Trigger": { "main": [[{ "node": "Reset Stuck Items", "type": "main", "index": 0 }]] },
+    "Reset Stuck Items": { "main": [[{ "node": "Mark All Pending", "type": "main", "index": 0 }]] },
+    "Mark All Pending": { "main": [[{ "node": "Get Page", "type": "main", "index": 0 }]] },
+    "Get Page": { "main": [[{ "node": "Has Items?", "type": "main", "index": 0 }]] },
+    "Has Items?": { "main": [[{ "node": "Loop", "type": "main", "index": 0 }], []] },
+    "Loop": { "main": [[{ "node": "Get Page", "type": "main", "index": 0 }], [{ "node": "Fire Worker", "type": "main", "index": 0 }]] },
+    "Fire Worker": { "main": [[{ "node": "Rate Limit 250ms", "type": "main", "index": 0 }]] },
+    "Rate Limit 250ms": { "main": [[{ "node": "Loop", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "5Twy03WAFur7CZcD"
+  }
+}

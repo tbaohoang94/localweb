@@ -1,0 +1,308 @@
+{
+  "id": "dyTx5AbwsNO5WGaL",
+  "name": "01-orchestrator",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 304]
+    },
+    {
+      "parameters": {
+        "options": {
+          "allowedTools": "test"
+        }
+      },
+      "id": "chat-trigger",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 560],
+      "webhookId": "orchestrator-test"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse chat input for test parameters\nconst chatInput = $input.first()?.json?.chatInput || '';\nlet params = { test_mode: true, date: null, limit: 0 };\n\ntry {\n  const parsed = JSON.parse(chatInput);\n  params = { ...params, ...parsed };\n} catch (e) {\n  // If not JSON, try to parse as simple date\n  if (chatInput.match(/^\\d{4}-\\d{2}-\\d{2}$/)) {\n    params.date = chatInput;\n  }\n}\n\nreturn [{ json: params }];"
+      },
+      "id": "parse-chat-input",
+      "name": "Parse Chat Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [224, 560]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "yg2xtQQAUaiLkLXi",
+          "mode": "list",
+          "cachedResultName": "02-add-new-user"
+        },
+        "options": {}
+      },
+      "id": "add-users",
+      "name": "Add new Users",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [272, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Test-Modus Parameter\nconst input = $input.first()?.json || {};\n\nreturn [{\n  json: {\n    test_mode: input.test_mode === true || input.test_mode === 'true' || false,\n    date: input.date || null,\n    limit: input.limit ? parseInt(String(input.limit)) : 0\n  }\n}];"
+      },
+      "id": "init-params",
+      "name": "Init Parameters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [272, 304]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "version": 2,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-test-mode",
+              "leftValue": "={{ $json.test_mode }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-test-mode",
+      "name": "If Test Mode",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [528, 304]
+    },
+    {
+      "parameters": {
+        "jsCode": "const params = $('Init Parameters').first().json;\nconst date = params.date || new Date().toISOString().split('T')[0];\n\nreturn [{\n  json: {\n    id: 'test-record',\n    date: date,\n    status: 'test'\n  }\n}];"
+      },
+      "id": "build-test-date",
+      "name": "Build Test Date",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [784, 112]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "sync_dates",
+        "returnAll": true,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "pending"
+            }
+          ]
+        }
+      },
+      "id": "search-pending",
+      "name": "Search Pending Dates",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [784, 512],
+      "credentials": { "supabaseApi": { "id": "SUPABASE_CREDENTIAL_ID", "name": "Supabase" } }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "sync_dates",
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "processing"
+            }
+          ]
+        }
+      },
+      "id": "mark-processing",
+      "name": "Mark Processing",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1040, 512],
+      "credentials": { "supabaseApi": { "id": "SUPABASE_CREDENTIAL_ID", "name": "Supabase" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const initParams = $('Init Parameters').first().json;\n\nreturn $input.all().map(item => {\n  const dateStr = item.json.date;\n  const dateObj = new Date(dateStr + 'T00:00:00.000Z');\n  const nextDay = new Date(dateObj);\n  nextDay.setDate(nextDay.getDate() + 1);\n\n  return {\n    json: {\n      date_gt: dateObj.toISOString(),\n      date_lt: nextDay.toISOString(),\n      date_record_id: item.json.id || '',\n      test_mode: initParams.test_mode || false,\n      limit: initParams.limit || 0\n    }\n  };\n});"
+      },
+      "id": "prepare-params",
+      "name": "Prepare Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1312, 304]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NAo1zIkjNwYMbHmv",
+          "mode": "list",
+          "cachedResultName": "03-get-custom-activities"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "exec-activities",
+      "name": "Execute Activities",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1568, 304]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $('Prepare Params').all().map(item => ({\n  json: { ...item.json }\n}));"
+      },
+      "id": "restore-params",
+      "name": "Restore Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1824, 304]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "cQDTdw5U0TRY28Nl",
+          "mode": "list",
+          "cachedResultName": "04-get-opportunities"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "exec-opportunities",
+      "name": "Execute Opportunities",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2080, 304]
+    },
+    {
+      "parameters": {
+        "jsCode": "const initParams = $('Init Parameters').first().json;\nif (initParams.test_mode) {\n  return [];\n}\n\nreturn $('Prepare Params').all().map(item => ({\n  json: {\n    id: item.json.date_record_id\n  }\n}));"
+      },
+      "id": "prepare-mark",
+      "name": "Prepare Mark Completed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2352, 304]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "sync_dates",
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "completed"
+            }
+          ]
+        }
+      },
+      "id": "mark-completed",
+      "name": "Mark Completed",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2608, 304],
+      "credentials": { "supabaseApi": { "id": "SUPABASE_CREDENTIAL_ID", "name": "Supabase" } }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[
+        { "node": "Init Parameters", "type": "main", "index": 0 },
+        { "node": "Add new Users", "type": "main", "index": 0 }
+      ]]
+    },
+    "Chat Trigger": {
+      "main": [[{ "node": "Parse Chat Input", "type": "main", "index": 0 }]]
+    },
+    "Parse Chat Input": {
+      "main": [[{ "node": "Init Parameters", "type": "main", "index": 0 }]]
+    },
+    "Init Parameters": {
+      "main": [[{ "node": "If Test Mode", "type": "main", "index": 0 }]]
+    },
+    "If Test Mode": {
+      "main": [
+        [{ "node": "Build Test Date", "type": "main", "index": 0 }],
+        [{ "node": "Search Pending Dates", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Test Date": {
+      "main": [[{ "node": "Prepare Params", "type": "main", "index": 0 }]]
+    },
+    "Search Pending Dates": {
+      "main": [[{ "node": "Mark Processing", "type": "main", "index": 0 }]]
+    },
+    "Mark Processing": {
+      "main": [[{ "node": "Prepare Params", "type": "main", "index": 0 }]]
+    },
+    "Prepare Params": {
+      "main": [[{ "node": "Execute Activities", "type": "main", "index": 0 }]]
+    },
+    "Execute Activities": {
+      "main": [[{ "node": "Restore Params", "type": "main", "index": 0 }]]
+    },
+    "Restore Params": {
+      "main": [[{ "node": "Execute Opportunities", "type": "main", "index": 0 }]]
+    },
+    "Execute Opportunities": {
+      "main": [[{ "node": "Prepare Mark Completed", "type": "main", "index": 0 }]]
+    },
+    "Prepare Mark Completed": {
+      "main": [[{ "node": "Mark Completed", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

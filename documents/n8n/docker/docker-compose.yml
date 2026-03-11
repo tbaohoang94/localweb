@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  n8n:
+    build:
+      context: .
+      dockerfile: Dockerfile.n8n-puppeteer
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: ${N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS}
+      N8N_COMMUNITY_PACKAGES: "@apify/n8n-nodes-apify"
+
+      # Allow env vars in expressions
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+
+      # Lokal erreichbar
+      N8N_HOST: localhost
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: https://n8n.hoba-consulting.com
+
+      # Task Runner Memory (default too low for large datasets)
+      N8N_RUNNERS_MAX_OLD_SPACE_SIZE: "2048"
+
+      # Concurrency: max 40 production executions at once
+      # 40 workers × ~318KB avg = ~12MB execution data (safe with 2048MB)
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "40"
+
+      # Code-Node: externe Module
+      NODE_FUNCTION_ALLOW_EXTERNAL: apify-client,cheerio,puppeteer,puppeteer-core
+
+      # Puppeteer verwendet system chromium
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+      PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium"
+
+      # Supabase google-maps-lead-pipeline
+      SUPABASE_GOOGLE_URL: ${SUPABASE_GOOGLE_URL}
+      SUPABASE_GOOGLE_KEY: ${SUPABASE_GOOGLE_KEY}
+
+      # Supabase close-airtable-sync
+      SUPABASE_LEADS_URL: ${SUPABASE_LEADS_URL}
+      SUPABASE_LEADS_KEY: ${SUPABASE_LEADS_KEY}
+
+      # Apify
+      APIFY_API_TOKEN: ${APIFY_API_TOKEN}
+
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+    ports:
+      - "5678:5678"
+    volumes:
+      - ../../files:/files
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: always
+    depends_on:
+      - n8n
+    command: tunnel --no-autoupdate --protocol http2 run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+
+volumes:
+  pgdata:
+  n8n_data:

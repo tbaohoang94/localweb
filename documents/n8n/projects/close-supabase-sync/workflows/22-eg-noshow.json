@@ -1,0 +1,124 @@
+{
+  "name": "22-eg-noshow",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-22",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json;\nconst ergebnis = (input.customFields || {})['custom.cf_P5mZqkFdSf5MpxQe9yajrvaUlQQ9rWvMGa1igfab7Dn'] || '';\n\nconst STATUS_MAP = {\n  '1 - Absage ohne neuen Termin': 'stat_RPNbKTTf6uhs7F2tmADbH6Scj1V5jChtFVJfnYFy07y',\n  '3 - Komplette Absage': 'stat_B1aKXs4IBqBXc48ifhA4rG5SxPB0gRUn09NZ91r3oRP',\n  '4 - Ausqualifizieren': 'stat_hRDEun2Q1lxNrj0CmD448Y4fuxTRn6rUIfxfGLhl3Mb'\n};\n\nconst statusId = STATUS_MAP[ergebnis];\n\nif (!statusId) {\n  return [{ json: { ...input, _skip: true, _reason: 'Ergebnis maps to no action: ' + ergebnis } }];\n}\n\nreturn [{ json: { ...input, _skip: false, statusId, ergebnis } }];"
+      },
+      "id": "resolve-22",
+      "name": "Resolve Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "skip-check-22",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "if-22",
+      "name": "Should Update?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.close.com/api/v1/lead/{{ $json.leadId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status_id: $json.statusId }) }}",
+        "options": {
+          "response": { "response": { "fullResponse": false } }
+        }
+      },
+      "id": "put-lead-22",
+      "name": "Update Lead Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: '22-eg-noshow', status: 'error', error_message: ($json.error?.message || $json.errorMessage || 'Failed to update lead status').substring(0, 500), started_at: new Date().toISOString(), finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "error-log-22",
+      "name": "Log Error to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 350],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Resolve Ergebnis", "type": "main", "index": 0 }]]
+    },
+    "Resolve Ergebnis": {
+      "main": [[{ "node": "Should Update?", "type": "main", "index": 0 }]]
+    },
+    "Should Update?": {
+      "main": [
+        [{ "node": "Update Lead Status", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Update Lead Status": {
+      "main": [
+        [],
+        [{ "node": "Log Error to Supabase", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

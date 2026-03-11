@@ -1,25 +1,46 @@
-# Secrets
+# Secrets & env
 .env
 .env.local
 .env.production
 .env*.local
+infra/docker/.env
+documents/n8n/docker/.env
 .mcp.json
+.agents/mcp/.mcp.json
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Node
-node_modules/
+# Next.js
 .next/
+out/
 .vercel
 *.tsbuildinfo
 next-env.d.ts
 
-# n8n
-n8n/backups/
+# Dependencies
+node_modules/
+
+# Docker Volumes
+**/n8n_data/
+**/pg_data/
+**/redis_data/
+**/caddy_data/
+**/caddy_config/
+
+# Backups & logs
+**/backups/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+venv/
 
 # IDE
 .idea/
 .vscode/
 *.swp
+
+# Claude Code (session data, local settings with keys)
+.claude/projects/
+.claude/settings.local.json
+skills-lock.json
+.agents/skills/n8n/

@@ -1,0 +1,101 @@
+{
+  "id": "RIziEv7wAifHBU47",
+  "name": "05-get-settingcalls",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-7216, 560],
+      "id": "099ae278-4559-476d-a03a-627d26267cee",
+      "name": "Workflow Trigger"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "chat-trigger-settingcalls",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [-7216, 816],
+      "webhookId": "settingcalls-test"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse chat input for test\nconst chatInput = $input.first()?.json?.chatInput || '';\nlet params = { date_created__gte: '', date_created__lte: '', lead_id: '' };\n\ntry {\n  const parsed = JSON.parse(chatInput);\n  params = { ...params, ...parsed };\n} catch (e) {\n  // Use defaults for today\n  const today = new Date();\n  const tomorrow = new Date(today);\n  tomorrow.setDate(tomorrow.getDate() + 1);\n  params.date_created__gte = today.toISOString().split('T')[0];\n  params.date_created__lte = tomorrow.toISOString().split('T')[0];\n}\n\nreturn [{ json: params }];"
+      },
+      "id": "parse-chat-settingcalls",
+      "name": "Parse Chat Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-6992, 816]
+    },
+    {
+      "parameters": {
+        "url": "https://api.close.com/api/v1/activity/call/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "_limit", "value": "100" },
+            { "name": "date_created__gte", "value": "={{ $json.date_created__gte }}" },
+            { "name": "date_created__lte", "value": "={{ $json.date_created__lte }}" },
+            { "name": "lead_id", "value": "={{ $json.lead_id }}" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-6432, 560],
+      "id": "15d898b9-2665-4d02-a84f-300fd573f0df",
+      "name": "Close: Get Calls",
+      "credentials": { "httpBasicAuth": { "id": "c1zqLlNCaOTBnrvH", "name": "Close.io" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/transcripts?on_conflict=close_call_id",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates,return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-4544, 464],
+      "id": "385a1fed-e335-4788-89dc-5e6460967be0",
+      "name": "Upsert Transcript",
+      "credentials": {
+        "httpHeaderAuth": { "id": "SUPABASE_HTTP_CREDENTIAL_ID", "name": "Supabase API" }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Trigger": {
+      "main": [[{ "node": "If", "type": "main", "index": 0 }]]
+    },
+    "Chat Trigger": {
+      "main": [[{ "node": "Parse Chat Input", "type": "main", "index": 0 }]]
+    },
+    "Parse Chat Input": {
+      "main": [[{ "node": "Close: Get Calls", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

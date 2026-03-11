@@ -1,0 +1,63 @@
+{
+  "id": "5Twy03WAFur7CZcD",
+  "name": "07-error-logger",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 288]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/workflow_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow_name\": {{ JSON.stringify($json.workflow.name) }},\n  \"execution_id\": {{ JSON.stringify($json.execution.id) }},\n  \"status\": \"error\",\n  \"error_node\": {{ JSON.stringify($json.execution.error.node?.name || 'unknown') }},\n  \"error_message\": {{ JSON.stringify(($json.execution.error.message || '').substring(0, 500)) }},\n  \"run_date\": {{ JSON.stringify($now.toISODate()) }},\n  \"details\": {{ JSON.stringify({ workflowId: $json.workflow.id, executionUrl: $json.execution.url }) }}\n}",
+        "options": {}
+      },
+      "id": "write-log",
+      "name": "Write Error Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 288]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "toEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "subject": "=n8n Pipeline Error: {{ $json.workflow.name }}",
+        "emailFormat": "text",
+        "message": "=Workflow: {{ $json.workflow.name }}\nNode: {{ $json.execution.error.node?.name || 'unknown' }}\nError: {{ ($json.execution.error.message || '').substring(0, 500) }}\n\nExecution: {{ $json.execution.url }}",
+        "options": {}
+      },
+      "id": "send-alert",
+      "name": "Send Error Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [448, 288],
+      "credentials": {
+        "smtp": { "id": "jKqq3tIwM4LGdZgW", "name": "SMTP account" }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Error Trigger": { "main": [[{ "node": "Write Error Log", "type": "main", "index": 0 }]] },
+    "Write Error Log": { "main": [[{ "node": "Send Error Alert", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "callerPolicy": "workflowsFromSameOwner" }
+}

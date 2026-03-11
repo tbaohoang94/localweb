@@ -1,0 +1,340 @@
+{
+  "id": "lbyXKgVpYP6jryDu",
+  "name": "01-start-apify-scrape",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": { "inputSource": "passthrough" },
+      "id": "wf-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, -112]
+    },
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 48]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?scrape_status=is.null&select=id,query,city,country",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-unscraped",
+      "name": "Get Unscraped Locations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 48]
+    },
+    {
+      "parameters": {
+        "batchSize": 8,
+        "options": {}
+      },
+      "id": "loop-batches",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [448, 48]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "check-run-id",
+              "leftValue": "={{ $json.apify_run_id || '' }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-run",
+      "name": "Has Apify Run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [560, 48]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/actor-runs/{{ $json.apify_run_id }}/resurrect?token={{ $env.APIFY_API_TOKEN }}",
+        "options": {}
+      },
+      "id": "resurrect-run",
+      "name": "Resurrect Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, 112],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/compass~crawler-google-places/runs?memory=2048&token={{ $env.APIFY_API_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"includeWebResults\":false,\"language\":\"de\",\"locationQuery\":{{ JSON.stringify($json.city + ', ' + $json.country) }},\"maxCrawledPlacesPerSearch\":1000,\"maxImages\":0,\"maximumLeadsEnrichmentRecords\":0,\"scrapeContacts\":false,\"scrapeDirectories\":false,\"scrapeImageAuthors\":false,\"scrapePlaceDetailPage\":false,\"scrapeReviewsPersonalData\":true,\"scrapeTableReservationProvider\":false,\"searchStringsArray\":[{{ JSON.stringify($json.query) }}],\"skipClosedPlaces\":true}",
+        "options": {}
+      },
+      "id": "start-apify",
+      "name": "Start Apify Actor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [672, -16],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?id=eq.{{ $('Loop Over Items').item.json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"apify_run_id\": {{ JSON.stringify($json.data.id) }},\n  \"scrape_status\": \"running\",\n  \"scraped_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "create-scrape-run",
+      "name": "Mark Location Running",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [896, -24],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reduce batch items to single item to avoid redundant API calls in polling loop\nconst items = $input.all();\nreturn [{\n  json: {\n    batchComplete: true,\n    batchSize: items.length\n  }\n}];"
+      },
+      "id": "aggregate-batch",
+      "name": "Aggregate Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, -24]
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "id": "wait-for-runs",
+      "name": "Wait 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1344, -24],
+      "webhookId": "af73b5ba-1b22-435c-92a0-192ff4fefc31"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/acts/compass~crawler-google-places/runs?limit=20&desc=true&token={{ $env.APIFY_API_TOKEN }}",
+        "options": {}
+      },
+      "id": "check-active-runs",
+      "name": "Get Apify Runs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1568, -96],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Count how many Apify runs are still active (READY or RUNNING)\nconst response = $input.first().json;\nconst runs = response.data?.items || [];\nconst activeRuns = runs.filter(run =>\n  ['READY', 'RUNNING'].includes(run.status)\n);\n\nreturn [{\n  json: {\n    activeCount: activeRuns.length,\n    totalChecked: runs.length\n  }\n}];"
+      },
+      "id": "count-active-runs",
+      "name": "Count Active Runs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1792, -96]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-active-count-zero",
+              "leftValue": "={{ $json.activeCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-all-done",
+      "name": "If All Done",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [2016, -24]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get Apify runs data and create individual items for status update\nconst apiResponse = $(\"Get Apify Runs\").first().json;\nconst runs = apiResponse.data?.items || [];\n\n// Map completed Apify runs to scrape_run status updates\nconst completedRuns = runs\n  .filter(run => !['READY', 'RUNNING'].includes(run.status))\n  .map(run => ({\n    json: {\n      apify_run_id: run.id,\n      status: run.status === 'SUCCEEDED' ? 'finished' : 'failed'\n    }\n  }));\n\n// If no completed runs found, return a passthrough item\nif (completedRuns.length === 0) {\n  return [{ json: { noUpdates: true } }];\n}\n\nreturn completedRuns;"
+      },
+      "id": "map-run-statuses",
+      "name": "Map Run Statuses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2240, -24]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?apify_run_id=eq.{{ $json.apify_run_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"scrape_status\": {{ JSON.stringify($json.status) }},\n  \"scrape_finished_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "update-scrape-run",
+      "name": "Update Location Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2464, -24],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "59tTad4B9Ryv2O67" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "trigger-import",
+      "name": "Import Results",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [2688, -24]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate update results back to single item for batch loop\nconst items = $input.all();\nreturn [{\n  json: {\n    updatedCount: items.length,\n    batchStatusUpdateComplete: true\n  }\n}];"
+      },
+      "id": "aggregate-updates",
+      "name": "Aggregate Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2912, 48]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Get Unscraped Locations", "type": "main", "index": 0 }]]
+    },
+    "Manual Trigger": {
+      "main": [[{ "node": "Get Unscraped Locations", "type": "main", "index": 0 }]]
+    },
+    "Get Unscraped Locations": {
+      "main": [[{ "node": "Loop Over Items", "type": "main", "index": 0 }]]
+    },
+    "Loop Over Items": {
+      "main": [[], [{ "node": "Has Apify Run?", "type": "main", "index": 0 }]]
+    },
+    "Has Apify Run?": {
+      "main": [
+        [{ "node": "Resurrect Run", "type": "main", "index": 0 }],
+        [{ "node": "Start Apify Actor", "type": "main", "index": 0 }]
+      ]
+    },
+    "Resurrect Run": {
+      "main": [[{ "node": "Mark Location Running", "type": "main", "index": 0 }]]
+    },
+    "Start Apify Actor": {
+      "main": [[{ "node": "Mark Location Running", "type": "main", "index": 0 }]]
+    },
+    "Mark Location Running": {
+      "main": [[{ "node": "Aggregate Batch", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Batch": {
+      "main": [[{ "node": "Wait 30s", "type": "main", "index": 0 }]]
+    },
+    "Wait 30s": {
+      "main": [[{ "node": "Get Apify Runs", "type": "main", "index": 0 }]]
+    },
+    "Get Apify Runs": {
+      "main": [[{ "node": "Count Active Runs", "type": "main", "index": 0 }]]
+    },
+    "Count Active Runs": {
+      "main": [[{ "node": "If All Done", "type": "main", "index": 0 }]]
+    },
+    "If All Done": {
+      "main": [
+        [{ "node": "Map Run Statuses", "type": "main", "index": 0 }],
+        [{ "node": "Wait 30s", "type": "main", "index": 0 }]
+      ]
+    },
+    "Map Run Statuses": {
+      "main": [[{ "node": "Update Location Status", "type": "main", "index": 0 }]]
+    },
+    "Update Location Status": {
+      "main": [[{ "node": "Import Results", "type": "main", "index": 0 }]]
+    },
+    "Import Results": {
+      "main": [[{ "node": "Aggregate Updates", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Updates": {
+      "main": [[{ "node": "Loop Over Items", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

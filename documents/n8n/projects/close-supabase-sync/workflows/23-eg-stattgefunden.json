@@ -1,0 +1,402 @@
+{
+  "id": "Vk7mEgStattgef23",
+  "name": "23-eg-stattgefunden",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "trigger-23",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json;\nconst ergebnis = (input.customFields || {})['custom.cf_Bp0LGE1a2Am7BlHszQNtV7KuTpVYDthbiKOetsFkcUQ'] || '';\n\nconst statusMap = {\n  '1 - Kunde': 'stat_bMeIa40jGWwjbA5bOJpdIGgBk7QFWa1nlhsA9hVJg1J',\n  '2 - Folgetermin': 'stat_bMeIa40jGWwjbA5bOJpdIGgBk7QFWa1nlhsA9hVJg1J',\n  '3 - Follow-up': 'stat_bMeIa40jGWwjbA5bOJpdIGgBk7QFWa1nlhsA9hVJg1J',\n  '4 - Verloren': 'stat_2NjdTtgLsl931S2nrmOLTK7IWW7KV0JVsiTwS7zexT4',\n  '5 - Unqualifiziert': 'stat_0o8JNmzSa6GiQH5yEZ424xT9B08NGTia4U3VxxzssMB'\n};\n\nconst statusId = statusMap[ergebnis] || 'stat_bMeIa40jGWwjbA5bOJpdIGgBk7QFWa1nlhsA9hVJg1J';\n\nconst now = new Date();\nconst closeDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);\nconst closeDateStr = closeDate.toISOString().split('T')[0];\n\nconst date = new Date(input.dateCreated || now.toISOString());\nconst dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString();\nconst dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).toISOString();\n\nreturn [{\n  json: {\n    ...input,\n    ergebnis,\n    statusId,\n    closeDateStr,\n    dayStart,\n    dayEnd,\n    opportunityBody: {\n      lead_id: input.leadId,\n      status_id: statusId,\n      value: 300000,\n      value_period: 'one_time',\n      value_currency: 'EUR',\n      confidence: 33,\n      date_created: input.dateCreated,\n      close_date: closeDateStr,\n      note: 'Automatisch erstellt durch EG stattgefunden Activity',\n      user_id: input.userId\n    }\n  }\n}];"
+      },
+      "id": "prepare-23",
+      "name": "Prepare Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.close.com/api/v1/opportunity/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.opportunityBody) }}",
+        "options": {}
+      },
+      "id": "create-opp-23",
+      "name": "Create Opportunity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 5,
+        "unit": "minutes"
+      },
+      "id": "wait-5m-23",
+      "name": "Wait 5min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = this.getWorkflowStaticData('node');\nstaticData.loopCount = 0;\nreturn [{ json: { loopCount: 0 } }];"
+      },
+      "id": "init-loop-23",
+      "name": "Init Loop Counter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.close.com/api/v1/activity/call/?lead_id={{ $('Prepare Data').first().json.leadId }}&user_id={{ $('Prepare Data').first().json.userId }}&date_created__gte={{ $('Prepare Data').first().json.dayStart }}&date_created__lt={{ $('Prepare Data').first().json.dayEnd }}&_limit=100",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-calls-23",
+      "name": "GET Calls",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $('GET Calls').first().json;\nconst callsData = response.data || [];\nconst calls = callsData.filter(c => c.recording_url);\n\nconst staticData = this.getWorkflowStaticData('node');\nconst loopCount = (staticData.loopCount || 0);\n\nif (calls.length === 0 && loopCount < 10) {\n  staticData.loopCount = loopCount + 1;\n  return [{ json: { hasRecordings: false, loopCount: loopCount + 1, maxReached: false } }];\n}\n\nif (calls.length === 0 && loopCount >= 10) {\n  return [{ json: { hasRecordings: false, loopCount: loopCount, maxReached: true, calls: [] } }];\n}\n\nreturn [{ json: { hasRecordings: true, loopCount: loopCount, maxReached: false, calls } }];"
+      },
+      "id": "check-recordings-23",
+      "name": "Check Recordings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "has-rec",
+              "leftValue": "={{ $json.hasRecordings }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "if-recordings-23",
+      "name": "Has Recordings?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "max-check",
+              "leftValue": "={{ $json.maxReached }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "if-retry-23",
+      "name": "Max Retries?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1920, 500]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 2,
+        "unit": "minutes"
+      },
+      "id": "wait-2m-23",
+      "name": "Wait 2min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2160, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Prepare Data').first().json;\nconst calls = $('Check Recordings').first().json.calls || [];\n\nfunction uuid() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n    const r = Math.random() * 16 | 0;\n    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);\n  });\n}\n\nconst transcripts = [];\n\nfor (let i = 0; i < calls.length; i++) {\n  const call = calls[i];\n  if (i > 0) await new Promise(r => setTimeout(r, 2000));\n\n  try {\n    const audioBuffer = await this.helpers.httpRequest({\n      method: 'GET',\n      url: call.recording_url,\n      headers: {\n        'Authorization': 'Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo='\n      },\n      encoding: 'arraybuffer'\n    });\n\n    const boundary = '----n8nBoundary' + Date.now() + i;\n    const modelPart = '--' + boundary + '\\r\\nContent-Disposition: form-data; name=\"model\"\\r\\n\\r\\nwhisper-1\\r\\n';\n    const fileHeader = '--' + boundary + '\\r\\nContent-Disposition: form-data; name=\"file\"; filename=\"recording.mp3\"\\r\\nContent-Type: audio/mpeg\\r\\n\\r\\n';\n    const footer = '\\r\\n--' + boundary + '--\\r\\n';\n\n    const bodyBuffer = Buffer.concat([\n      Buffer.from(modelPart),\n      Buffer.from(fileHeader),\n      Buffer.from(audioBuffer),\n      Buffer.from(footer)\n    ]);\n\n    const whisperResult = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.openai.com/v1/audio/transcriptions',\n      headers: {\n        'Authorization': 'Bearer ' + $env.OPENAI_API_KEY,\n        'Content-Type': 'multipart/form-data; boundary=' + boundary\n      },\n      body: bodyBuffer\n    });\n\n    const transcriptText = typeof whisperResult === 'string' ? whisperResult : (whisperResult.text || JSON.stringify(whisperResult));\n\n    transcripts.push({\n      source_type: 'call',\n      source_id: uuid(),\n      content: transcriptText,\n      call_type: 'erstgespraech',\n      url: call.recording_url,\n      synced_at: new Date().toISOString()\n    });\n  } catch (e) {\n    continue;\n  }\n}\n\nreturn [{ json: { transcripts, count: transcripts.length } }];"
+      },
+      "id": "transcribe-23",
+      "name": "Transcribe Calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1920, 100],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "has-trans",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "has-transcripts-23",
+      "name": "Has Transcripts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2160, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/transcripts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.transcripts) }}",
+        "options": {}
+      },
+      "id": "save-transcripts-23",
+      "name": "Save Transcripts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'system', content: 'Fasse die folgenden Gesprächstranskripte kurz und strukturiert zusammen. Gib die wichtigsten Punkte und relevante Informationen für die weitere Betreuung an. Antworte auf Deutsch.' }, { role: 'user', content: $('Transcribe Calls').first().json.transcripts.map((t, i) => '--- Transkript ' + (i + 1) + ' ---\\n' + t.content).join('\\n\\n') }] }) }}",
+        "options": {}
+      },
+      "id": "ai-summary-23",
+      "name": "AI Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2640, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.close.com/api/v1/activity/note/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_id: $('Prepare Data').first().json.leadId, note: 'Zusammenfassung Erstgespräch\\n\\n' + ($json.choices[0].message.content || '') }) }}",
+        "options": {}
+      },
+      "id": "create-note-23",
+      "name": "Create Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_23_eg_stattgefunden', status: 'success', started_at: $('Prepare Data').first().json.dateCreated, finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "log-success-23",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3120, 0],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_23_eg_stattgefunden', status: 'success', error_message: 'No recordings found after max retries', started_at: $('Prepare Data').first().json.dateCreated, finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "log-no-rec-23",
+      "name": "Log No Recordings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2160, 700],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'webhook_23_eg_stattgefunden', status: 'success', error_message: 'No transcripts produced from recordings', started_at: $('Prepare Data').first().json.dateCreated, finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "log-no-trans-23",
+      "name": "Log No Transcripts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 200],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Prepare Data", "type": "main", "index": 0 }]]
+    },
+    "Prepare Data": {
+      "main": [[{ "node": "Create Opportunity", "type": "main", "index": 0 }]]
+    },
+    "Create Opportunity": {
+      "main": [[{ "node": "Wait 5min", "type": "main", "index": 0 }]]
+    },
+    "Wait 5min": {
+      "main": [[{ "node": "Init Loop Counter", "type": "main", "index": 0 }]]
+    },
+    "Init Loop Counter": {
+      "main": [[{ "node": "GET Calls", "type": "main", "index": 0 }]]
+    },
+    "GET Calls": {
+      "main": [[{ "node": "Check Recordings", "type": "main", "index": 0 }]]
+    },
+    "Check Recordings": {
+      "main": [[{ "node": "Has Recordings?", "type": "main", "index": 0 }]]
+    },
+    "Has Recordings?": {
+      "main": [
+        [{ "node": "Transcribe Calls", "type": "main", "index": 0 }],
+        [{ "node": "Max Retries?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Max Retries?": {
+      "main": [
+        [{ "node": "Wait 2min", "type": "main", "index": 0 }],
+        [{ "node": "Log No Recordings", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait 2min": {
+      "main": [[{ "node": "GET Calls", "type": "main", "index": 0 }]]
+    },
+    "Transcribe Calls": {
+      "main": [[{ "node": "Has Transcripts?", "type": "main", "index": 0 }]]
+    },
+    "Has Transcripts?": {
+      "main": [
+        [{ "node": "Save Transcripts", "type": "main", "index": 0 }],
+        [{ "node": "Log No Transcripts", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Transcripts": {
+      "main": [[{ "node": "AI Summary", "type": "main", "index": 0 }]]
+    },
+    "AI Summary": {
+      "main": [[{ "node": "Create Note", "type": "main", "index": 0 }]]
+    },
+    "Create Note": {
+      "main": [[{ "node": "Log Success", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

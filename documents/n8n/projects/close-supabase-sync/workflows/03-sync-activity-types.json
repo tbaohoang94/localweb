@@ -1,0 +1,180 @@
+{
+  "id": "W549YA04HFFti2Wa",
+  "name": "03-sync-activity-types",
+  "active": true,
+  "nodes": [
+    {
+      "id": "trigger-03",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "sync-start-03",
+      "name": "Sync Start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"entity\": \"custom_activity_types\", \"status\": \"running\", \"started_at\": \"{{ $now.toISO() }}\", \"sync_since\": \"{{ $json.since }}\", \"sync_until\": \"{{ $json.until }}\"}",
+        "options": {}
+      }
+    },
+    {
+      "id": "get-types-03",
+      "name": "GET Close Activity Types",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "url": "https://api.close.com/api/v1/custom_activity/",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "_limit", "value": "10000" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "transform-03",
+      "name": "Transform Types",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300],
+      "parameters": {
+        "jsCode": "const types = $input.first().json.data || [];\n\nreturn types.map(t => ({\n  json: {\n    close_type_id: t.id,\n    name: t.name || '',\n    synced_at: new Date().toISOString()\n  }\n}));"
+      }
+    },
+    {
+      "id": "aggregate-03",
+      "name": "Aggregate Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "parameters": {
+        "jsCode": "const allTypes = $input.all().map(i => i.json);\nreturn [{ json: { batch: allTypes, count: allTypes.length } }];"
+      }
+    },
+    {
+      "id": "upsert-03",
+      "name": "Upsert Activity Types",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/custom_activity_types?on_conflict=close_type_id",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates,return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.batch) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "count-03",
+      "name": "Count Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 300],
+      "parameters": {
+        "jsCode": "const count = $input.first().json.length || $input.all().length;\nconst syncRunId = $('Sync Start').first().json.id;\n\nreturn [{ json: { count, syncRunId } }];"
+      }
+    },
+    {
+      "id": "sync-success-03",
+      "name": "Sync Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 300],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs?id=eq.{{ $json.syncRunId }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\": \"success\", \"records_synced\": {{ $json.count }}, \"finished_at\": \"{{ $now.toISO() }}\"}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [[{ "node": "Sync Start", "type": "main", "index": 0 }]]
+    },
+    "Sync Start": {
+      "main": [[{ "node": "GET Close Activity Types", "type": "main", "index": 0 }]]
+    },
+    "GET Close Activity Types": {
+      "main": [[{ "node": "Transform Types", "type": "main", "index": 0 }]]
+    },
+    "Transform Types": {
+      "main": [[{ "node": "Aggregate Batch", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Batch": {
+      "main": [[{ "node": "Upsert Activity Types", "type": "main", "index": 0 }]]
+    },
+    "Upsert Activity Types": {
+      "main": [[{ "node": "Count Records", "type": "main", "index": 0 }]]
+    },
+    "Count Records": {
+      "main": [[{ "node": "Sync Success", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

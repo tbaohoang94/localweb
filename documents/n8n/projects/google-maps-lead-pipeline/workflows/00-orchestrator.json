@@ -1,0 +1,444 @@
+{
+  "id": "nkvX4mOjOpHqIGY2",
+  "name": "00-orchestrator",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 224]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/workflow_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow_name\": \"00-orchestrator\",\n  \"execution_id\": {{ JSON.stringify($execution.id) }},\n  \"status\": \"started\",\n  \"run_date\": {{ JSON.stringify($now.toISODate()) }}\n}",
+        "options": {}
+      },
+      "id": "log-start",
+      "name": "Log Start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [448, 320]
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "lbyXKgVpYP6jryDu" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "exec-wf01",
+      "name": "Execute WF 01 - Scrape",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [896, 320],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "4sjQWkilSRCgdQQa" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "searchFilter": "={{ $('Build Search Filter').first().json.searchFilter }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "searchFilter",
+              "displayName": "searchFilter",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "exec-wf03",
+      "name": "Execute WF 03 - Qualify",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1360, 320],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "qFqHqkg2nsX3jP59" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "searchFilter": "={{ $('Build Search Filter').first().json.searchFilter }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "searchFilter",
+              "displayName": "searchFilter",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "exec-wf04a",
+      "name": "Execute WF 04a - Dispatch",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1824, 320],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { dispatchedAt: $now.toISO(), maxWaitMinutes: 45 } }];"
+      },
+      "id": "record-time",
+      "name": "Record Dispatch Time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2272, 320]
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "id": "poll-wait",
+      "name": "Wait 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2496, 320],
+      "webhookId": "fd424647-1602-4bb0-8bd4-a465f8a3829f"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?enrichment_status=not.in.(enriched,failed)&website=not.is.null&qualification_status=neq.unqualified{{ (() => { try { const f = $('Build Search Filter').first().json.searchFilter; return f ? '&search_string=' + f : ''; } catch(e) { return ''; } })() }}&select=id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-pending",
+      "name": "Check Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2736, 240],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Robust check: handle empty array, error responses, and track poll count\nconst response = $input.first().json;\n\n// Check if response is an actual Supabase result (array items get unpacked)\n// Empty result from Supabase returns [] which n8n unpacks to item with empty json {}\nconst hasId = response.id !== undefined && response.id !== null;\nconst hasPending = hasId;\n\nconst dispatchedAt = $('Record Dispatch Time').first().json.dispatchedAt;\nconst maxWaitMinutes = $('Record Dispatch Time').first().json.maxWaitMinutes;\nconst elapsedMs = Date.now() - new Date(dispatchedAt).getTime();\nconst elapsedMinutes = Math.round(elapsedMs / 60000);\nconst isTimedOut = elapsedMinutes >= maxWaitMinutes;\n\n// Track poll count for debugging\nlet pollCount = 0;\ntry {\n  pollCount = $('Evaluate Poll').first().json.pollCount || 0;\n} catch(e) { /* first iteration */ }\npollCount++;\n\nreturn [{ json: { hasPending, isTimedOut, elapsedMinutes, pollCount } }];"
+      },
+      "id": "eval-poll",
+      "name": "Evaluate Poll",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2960, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [{ "id": "1", "leftValue": "={{ $json.hasPending }}", "rightValue": "", "operator": { "type": "boolean", "operation": "false", "singleValue": true } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-done",
+      "name": "Enrichment Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [3184, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [{ "id": "1", "leftValue": "={{ $json.isTimedOut }}", "rightValue": "", "operator": { "type": "boolean", "operation": "true", "singleValue": true } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-timeout",
+      "name": "Timeout?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [3408, 416]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?enrichment_status=not.in.(enriched,failed)&website=not.is.null{{ (() => { try { const f = $('Build Search Filter').first().json.searchFilter; return f ? '&search_string=' + f : ''; } catch(e) { return ''; } })() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"enrichment_status\": \"failed\", \"enriched_at\": {{ JSON.stringify($now.toISO()) }}}",
+        "options": {}
+      },
+      "id": "mark-timeout-failed",
+      "name": "Mark Timeout Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3648, 416]
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "j9OWBXm1AMH54Ieq" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "searchFilter": "={{ $('Build Search Filter').first().json.searchFilter }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "searchFilter",
+              "displayName": "searchFilter",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "exec-wf06",
+      "name": "Execute WF 05 - CSV Export",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [3408, 192],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/workflow_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow_name\": \"00-orchestrator\",\n  \"execution_id\": {{ JSON.stringify($execution.id) }},\n  \"status\": {{ $('Evaluate Poll').first().json.isTimedOut ? '\"completed_with_timeout\"' : '\"completed\"' }},\n  \"run_date\": {{ JSON.stringify($now.toISODate()) }},\n  \"details\": {{ JSON.stringify({ elapsedMinutes: $('Evaluate Poll').first().json.elapsedMinutes, timedOut: $('Evaluate Poll').first().json.isTimedOut, pollCount: $('Evaluate Poll').first().json.pollCount }) }}\n}",
+        "options": {}
+      },
+      "id": "log-complete",
+      "name": "Log Completion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3648, 192]
+    },
+    {
+      "parameters": {},
+      "id": "test-trigger",
+      "name": "Test Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 416]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?on_conflict=country,city,query",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation,resolution=merge-duplicates" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"country\": \"Deutschland\",\n  \"city\": \"Potsdam\",\n  \"query\": \"Geigenbauer\",\n  \"scrape_status\": null,\n  \"apify_run_id\": null,\n  \"scraped_at\": null,\n  \"scrape_finished_at\": null,\n  \"scrape_total_results\": null\n}",
+        "options": {}
+      },
+      "id": "setup-test",
+      "name": "Setup Test Location",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 416]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?or=(scrape_status.is.null,scrape_status.eq.failed)&select=id,query,city,country",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-locations",
+      "name": "Get All Locations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 224],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect search strings from location data (test path or manual path)\nlet queries = [];\ntry {\n  const items = $('Setup Test Location').all();\n  queries = items.map(item => item.json.query).filter(Boolean);\n} catch(e) {}\n\nif (queries.length === 0) {\n  try {\n    const items = $('Get All Locations').all();\n    queries = items.map(item => item.json.query).filter(Boolean);\n  } catch(e) {}\n}\n\nconst unique = [...new Set(queries)];\nconst searchFilter = unique.length > 0 ? `in.(${unique.join(',')})` : '';\nreturn [{ json: { searchFilter, searchStrings: unique } }];"
+      },
+      "id": "build-filter",
+      "name": "Build Search Filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn [{ json: { step: 'scrape', done: true, itemCount: items.length } }];"
+      },
+      "id": "sum-wf01",
+      "name": "Summarize WF 01",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1136, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn [{ json: { step: 'qualify', done: true, itemCount: items.length } }];"
+      },
+      "id": "sum-wf03",
+      "name": "Summarize WF 03",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1584, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn [{ json: { step: 'dispatch', done: true, itemCount: items.length } }];"
+      },
+      "id": "sum-wf04a",
+      "name": "Summarize WF 04a",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2048, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [{ "id": "1", "leftValue": "={{ $json.searchFilter }}", "rightValue": "", "operator": { "type": "string", "operation": "notEmpty" } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-locations",
+      "name": "Has Locations?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [784, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/workflow_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow_name\": \"00-orchestrator\",\n  \"execution_id\": {{ JSON.stringify($execution.id) }},\n  \"status\": \"skipped_no_locations\",\n  \"run_date\": {{ JSON.stringify($now.toISODate()) }}\n}",
+        "options": {}
+      },
+      "id": "log-no-locations",
+      "name": "Log No Locations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [784, 512]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Get All Locations", "type": "main", "index": 0 }]] },
+    "Get All Locations": { "main": [[{ "node": "Log Start", "type": "main", "index": 0 }]] },
+    "Test Trigger": { "main": [[{ "node": "Setup Test Location", "type": "main", "index": 0 }]] },
+    "Setup Test Location": { "main": [[{ "node": "Log Start", "type": "main", "index": 0 }]] },
+    "Log Start": { "main": [[{ "node": "Build Search Filter", "type": "main", "index": 0 }]] },
+    "Build Search Filter": { "main": [[{ "node": "Has Locations?", "type": "main", "index": 0 }]] },
+    "Has Locations?": { "main": [[{ "node": "Execute WF 01 - Scrape", "type": "main", "index": 0 }], [{ "node": "Log No Locations", "type": "main", "index": 0 }]] },
+    "Execute WF 01 - Scrape": { "main": [[{ "node": "Summarize WF 01", "type": "main", "index": 0 }]] },
+    "Summarize WF 01": { "main": [[{ "node": "Execute WF 03 - Qualify", "type": "main", "index": 0 }]] },
+    "Execute WF 03 - Qualify": { "main": [[{ "node": "Summarize WF 03", "type": "main", "index": 0 }]] },
+    "Summarize WF 03": { "main": [[{ "node": "Execute WF 04a - Dispatch", "type": "main", "index": 0 }]] },
+    "Execute WF 04a - Dispatch": { "main": [[{ "node": "Summarize WF 04a", "type": "main", "index": 0 }]] },
+    "Summarize WF 04a": { "main": [[{ "node": "Record Dispatch Time", "type": "main", "index": 0 }]] },
+    "Record Dispatch Time": { "main": [[{ "node": "Wait 30s", "type": "main", "index": 0 }]] },
+    "Wait 30s": { "main": [[{ "node": "Check Pending", "type": "main", "index": 0 }]] },
+    "Check Pending": { "main": [[{ "node": "Evaluate Poll", "type": "main", "index": 0 }]] },
+    "Evaluate Poll": { "main": [[{ "node": "Enrichment Complete?", "type": "main", "index": 0 }]] },
+    "Enrichment Complete?": { "main": [[{ "node": "Execute WF 05 - CSV Export", "type": "main", "index": 0 }], [{ "node": "Timeout?", "type": "main", "index": 0 }]] },
+    "Timeout?": { "main": [[{ "node": "Mark Timeout Failed", "type": "main", "index": 0 }], [{ "node": "Wait 30s", "type": "main", "index": 0 }]] },
+    "Mark Timeout Failed": { "main": [[{ "node": "Execute WF 05 - CSV Export", "type": "main", "index": 0 }]] },
+    "Execute WF 05 - CSV Export": { "main": [[{ "node": "Log Completion", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "5Twy03WAFur7CZcD",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

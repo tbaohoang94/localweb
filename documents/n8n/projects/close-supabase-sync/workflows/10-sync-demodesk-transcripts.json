@@ -1,0 +1,346 @@
+{
+  "id": "1mtLiN4tCIM54t84",
+  "name": "10-sync-demodesk-transcripts",
+  "nodes": [
+    {
+      "parameters": { "inputSource": "passthrough" },
+      "id": "trigger-10",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "chat-10",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 540],
+      "webhookId": "demodesk-transcripts-test"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"entity\": \"demodesk_transcripts\", \"status\": \"running\", \"started_at\": \"{{ $now.toISO() }}\"}",
+        "options": {}
+      },
+      "id": "sync-start-10",
+      "name": "Sync Start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { page: 1, recordings: [] } }];"
+      },
+      "id": "init-10",
+      "name": "Init Pagination",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://demodesk.com/api/v1/demos?filter[schedule_eq]=past&filter[recordings_present]=true&page={{ $json.page }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "api-key", "value": "={{ $env.DEMODESK_API_KEY }}" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-demos-10",
+      "name": "GET Demodesk Demos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $('GET Demodesk Demos').first().json;\nconst demos = response.data || [];\nconst included = response.included || [];\n\nlet prevRecordings = [];\nlet currentPage = 1;\ntry {\n  const prev = $('Increment Page').first().json;\n  prevRecordings = prev.recordings || [];\n  currentPage = prev.page || 1;\n} catch (e) {\n  const init = $('Init Pagination').first().json;\n  prevRecordings = init.recordings || [];\n  currentPage = init.page || 1;\n}\n\nconst recordingMap = {};\nfor (const item of included) {\n  if (item.type === 'recordings' && item.attributes) {\n    recordingMap[item.id] = item.attributes.token;\n  }\n}\n\nconst newRecordings = [];\nfor (const demo of demos) {\n  const attrs = demo.attributes || {};\n  const recs = demo.relationships?.recordings?.data || [];\n  for (const rec of recs) {\n    const token = recordingMap[rec.id];\n    if (token) {\n      newRecordings.push({\n        token,\n        demoId: demo.id,\n        account: attrs.account || '',\n        startDate: attrs.start_date || null\n      });\n    }\n  }\n}\n\nconst allRecordings = [...prevRecordings, ...newRecordings];\nreturn [{ json: { recordings: allRecordings, count: allRecordings.length, hasMore: demos.length >= 25, currentPage } }];"
+      },
+      "id": "extract-10",
+      "name": "Extract & Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "more-pages-10",
+      "name": "Has More Pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Extract & Check').first().json;\nreturn [{ json: { page: prev.currentPage + 1, recordings: prev.recordings } }];"
+      },
+      "id": "next-page-10",
+      "name": "Increment Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allRecordings = $('Extract & Check').first().json.recordings;\n\nconst response = await this.helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_LEADS_URL + '/rest/v1/transcripts?select=url&source_type=eq.demodesk&limit=100000',\n  headers: {\n    'apikey': $env.SUPABASE_LEADS_KEY,\n    'Authorization': 'Bearer ' + $env.SUPABASE_LEADS_KEY\n  }\n});\n\nconst existing = Array.isArray(response) ? response : [];\nconst syncedTokens = new Set(existing.filter(t => t && t.url).map(t => t.url));\nconst unprocessed = allRecordings.filter(r => !syncedTokens.has(r.token));\n\nreturn [{ json: { unprocessedRecordings: unprocessed, count: unprocessed.length } }];"
+      },
+      "id": "filter-10",
+      "name": "Filter Unprocessed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "if-10",
+      "name": "Has Recordings?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const recordings = $('Filter Unprocessed').first().json.unprocessedRecordings;\nreturn recordings.map(r => ({\n  json: {\n    token: r.token,\n    demoId: r.demoId,\n    account: r.account,\n    startDate: r.startDate\n  }\n}));"
+      },
+      "id": "split-10",
+      "name": "Split Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1920, 100]
+    },
+    {
+      "parameters": { "batchSize": 5, "options": {} },
+      "id": "batch-10",
+      "name": "Batch Processing",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [2160, 100]
+    },
+    {
+      "parameters": {
+        "url": "=https://demodesk.com/api/v1/recordings/{{ $json.token }}/transcript",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "api-key", "value": "={{ $env.DEMODESK_API_KEY }}" },
+            { "name": "Accept", "value": "text/plain" }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "download-10",
+      "name": "Download Transcript",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 100],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst batchItems = $('Batch Processing').all();\n\nfunction uuid() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n    const r = Math.random() * 16 | 0;\n    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);\n  });\n}\n\nconst batch = items.map((item, i) => {\n  let content = '';\n  if (typeof item.json === 'string') {\n    content = item.json;\n  } else if (item.json.data) {\n    content = typeof item.json.data === 'string' ? item.json.data : JSON.stringify(item.json.data);\n  } else if (item.json.text) {\n    content = item.json.text;\n  } else {\n    content = JSON.stringify(item.json);\n  }\n\n  return {\n    source_type: 'demodesk',\n    source_id: uuid(),\n    content,\n    call_type: 'strategiegespraech',\n    url: batchItems[i]?.json?.token || '',\n    synced_at: new Date().toISOString()\n  };\n});\n\nreturn [{ json: { batch, batchCount: batch.length } }];"
+      },
+      "id": "map-10",
+      "name": "Map Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/transcripts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.batch) }}",
+        "options": {}
+      },
+      "id": "upsert-10",
+      "name": "Upsert Transcripts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 100]
+    },
+    {
+      "parameters": { "resume": "timeInterval", "amount": 1, "unit": "seconds" },
+      "id": "wait-10",
+      "name": "Wait 1s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3120, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const count = $('Filter Unprocessed').first().json.count;\nconst syncRunId = $('Sync Start').first().json.id;\nreturn [{ json: { count, syncRunId } }];"
+      },
+      "id": "count-10",
+      "name": "Count Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const syncRunId = $('Sync Start').first().json.id;\nreturn [{ json: { count: 0, syncRunId } }];"
+      },
+      "id": "empty-10",
+      "name": "Empty Count",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1920, 500]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs?id=eq.{{ $json.syncRunId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"status\": \"success\", \"records_synced\": {{ $json.count }}, \"finished_at\": \"{{ $now.toISO() }}\"}",
+        "options": {}
+      },
+      "id": "sync-success-10",
+      "name": "Sync Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 400]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [[{ "node": "Sync Start", "type": "main", "index": 0 }]]
+    },
+    "Chat Trigger": {
+      "main": [[{ "node": "Sync Start", "type": "main", "index": 0 }]]
+    },
+    "Sync Start": {
+      "main": [[{ "node": "Init Pagination", "type": "main", "index": 0 }]]
+    },
+    "Init Pagination": {
+      "main": [[{ "node": "GET Demodesk Demos", "type": "main", "index": 0 }]]
+    },
+    "GET Demodesk Demos": {
+      "main": [[{ "node": "Extract & Check", "type": "main", "index": 0 }]]
+    },
+    "Extract & Check": {
+      "main": [[{ "node": "Has More Pages?", "type": "main", "index": 0 }]]
+    },
+    "Has More Pages?": {
+      "main": [
+        [{ "node": "Increment Page", "type": "main", "index": 0 }],
+        [{ "node": "Filter Unprocessed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Increment Page": {
+      "main": [[{ "node": "GET Demodesk Demos", "type": "main", "index": 0 }]]
+    },
+    "Filter Unprocessed": {
+      "main": [[{ "node": "Has Recordings?", "type": "main", "index": 0 }]]
+    },
+    "Has Recordings?": {
+      "main": [
+        [{ "node": "Split Items", "type": "main", "index": 0 }],
+        [{ "node": "Empty Count", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split Items": {
+      "main": [[{ "node": "Batch Processing", "type": "main", "index": 0 }]]
+    },
+    "Batch Processing": {
+      "main": [
+        [{ "node": "Count Records", "type": "main", "index": 0 }],
+        [{ "node": "Download Transcript", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download Transcript": {
+      "main": [[{ "node": "Map Transcript", "type": "main", "index": 0 }]]
+    },
+    "Map Transcript": {
+      "main": [[{ "node": "Upsert Transcripts", "type": "main", "index": 0 }]]
+    },
+    "Upsert Transcripts": {
+      "main": [[{ "node": "Wait 1s", "type": "main", "index": 0 }]]
+    },
+    "Wait 1s": {
+      "main": [[{ "node": "Batch Processing", "type": "main", "index": 0 }]]
+    },
+    "Count Records": {
+      "main": [[{ "node": "Sync Success", "type": "main", "index": 0 }]]
+    },
+    "Empty Count": {
+      "main": [[{ "node": "Sync Success", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

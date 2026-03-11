@@ -1,0 +1,345 @@
+{
+  "id": "j9OWBXm1AMH54Ieq",
+  "name": "05-csv-export-email",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "wf-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        288
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?and=(close_export_status.is.null,qualification_status.neq.unqualified,or(im_tel.not.is.null,phone.not.is.null)){{ $json.searchFilter ? '&search_string=' + $json.searchFilter : '' }}&select=id,name,category,address,city,postal_code,country,phone,website,rating,reviews_count,google_maps_url,website_summary,qualification_reason,im_contact_name,im_email,im_tel,search_string,neighborhood,fid,place_id,images_count,opening_hours,rank,claimed&limit=1000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "paginationCompleteWhen": "responseIsEmpty",
+              "maxRequests": 100,
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "offset",
+                    "value": "={{ $pageCount * 1000 }}"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "id": "get-businesses",
+      "name": "Get Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nif (!items.length) return [{ json: { count: 0 } }];\n\nconst headers = [\n  'Company','Contact Name','Contact Email','Contact Phone','URL','Website URL',\n  'Description','Street','City','Zip','Country','Ai Website Summary','Bewertungen Durchschnitt',\n  'Bewertungen Anzahl','Stadtteil','Suchbegriff','Suchbegriff Ranking','Anzahl Fotos','Verifiziert',\n  'Öffnungszeiten','Places ID','Google ID','Qualification Reason'\n];\n\nfunction esc(val) {\n  if (val == null) return '';\n  const s = String(val);\n  if (s.includes(',') || s.includes('\"') || s.includes('\\n')) {\n    return '\"' + s.replace(/\"/g, '\"\"') + '\"';\n  }\n  return s;\n}\n\nconst rows = items.map(r => [\n  r.name, r.im_contact_name, r.im_email,\n  r.im_tel || r.phone,\n  r.google_maps_url, r.website, r.category,\n  r.address, r.city, r.postal_code, r.country,\n  r.website_summary, r.rating, r.reviews_count,\n  r.neighborhood, r.search_string, r.rank,\n  r.images_count, r.claimed,\n  typeof r.opening_hours === 'object' ? JSON.stringify(r.opening_hours) : r.opening_hours,\n  r.place_id, r.fid, r.qualification_reason\n].map(esc).join(','));\n\nconst csv = [headers.join(','), ...rows].join('\\n');\nconst ids = items.map(r => r.id);\nconst date = new Date().toISOString().slice(0, 10);\n\nreturn [{\n  json: { count: items.length, ids, date },\n  binary: {\n    csv: {\n      data: Buffer.from(csv, 'utf-8').toString('base64'),\n      mimeType: 'text/csv',\n      fileName: `close-leads-${date}.csv`\n    }\n  }\n}];"
+      },
+      "id": "build-csv",
+      "name": "Build CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 3,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-items",
+      "name": "Has Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "toEmail": "={{ $env.NOTIFICATION_EMAIL }}",
+        "subject": "=Close.io Leads Export - {{ $json.date }} ({{ $json.count }} Leads)",
+        "emailFormat": "text",
+        "message": "={{ $json.count }} Leads bereit für Close.io Import.\n\nCSV im Anhang. Bitte in Close.io unter Leads > Import hochladen.",
+        "options": {
+          "attachments": "csv"
+        }
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2016,
+        400
+      ],
+      "webhookId": "1c328b1a-0565-4e9e-aa3e-922ab3a2b65b",
+      "credentials": {
+        "smtp": {
+          "id": "jKqq3tIwM4LGdZgW",
+          "name": "SMTP account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const ids = $('Build CSV').first().json.ids;\nconst chunkSize = 500;\nconst chunks = [];\nfor (let i = 0; i < ids.length; i += chunkSize) {\n  chunks.push(ids.slice(i, i + chunkSize));\n}\nreturn chunks.map(chunk => ({\n  json: { idFilter: `in.(${chunk.join(',')})` }\n}));"
+      },
+      "id": "chunk-ids",
+      "name": "Chunk IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "loop-chunks",
+      "name": "Loop Chunks",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1344,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?id={{ $json.idFilter }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"close_export_status\": \"csv_sent\",\n  \"close_exported_at\": {{ JSON.stringify($now.toISO()) }}\n}",
+        "options": {}
+      },
+      "id": "mark-exported",
+      "name": "Mark Exported",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        192
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "prepare-email",
+      "name": "Prepare Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        400
+      ],
+      "parameters": {
+        "jsCode": "// Re-attach CSV binary and metadata from Build CSV for email\nconst csvData = $('Build CSV').first();\nreturn [{\n  json: { count: csvData.json.count, date: csvData.json.date },\n  binary: csvData.binary\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Businesses": {
+      "main": [
+        [
+          {
+            "node": "Build CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build CSV": {
+      "main": [
+        [
+          {
+            "node": "Has Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk IDs": {
+      "main": [
+        [
+          {
+            "node": "Loop Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Chunks": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Exported",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Exported": {
+      "main": [
+        [
+          {
+            "node": "Loop Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Items?": {
+      "main": [
+        [
+          {
+            "node": "Chunk IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "5Twy03WAFur7CZcD",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}

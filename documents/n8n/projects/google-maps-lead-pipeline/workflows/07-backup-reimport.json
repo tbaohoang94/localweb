@@ -1,0 +1,330 @@
+{
+  "name": "07-backup-reimport",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/locations?or=(scrape_total_results.eq.0,scrape_total_results.is.null)&apify_run_id=not.is.null&select=id,apify_run_id,query",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-failed",
+      "name": "Get Failed Locations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 0],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.id || '' }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-items",
+      "name": "Has Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [448, 0]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [672, -80]
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "59tTad4B9Ryv2O67" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "exec-wf02",
+      "name": "Execute WF 02 - Import",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [896, -80],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "await new Promise(r => setTimeout(r, 2000));\nreturn $input.all();"
+      },
+      "id": "wait-import",
+      "name": "Wait 2s",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, -80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('Get Failed Locations').all();\nconst queries = items.map(item => item.json.query).filter(Boolean);\nconst unique = [...new Set(queries)];\nconst searchFilter = unique.length > 0 ? `in.(${unique.join(',')})` : '';\nreturn [{ json: { searchFilter, searchStrings: unique } }];"
+      },
+      "id": "build-filter",
+      "name": "Build Search Filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, 160]
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "4sjQWkilSRCgdQQa" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "searchFilter": "={{ $('Build Search Filter').first().json.searchFilter }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "searchFilter",
+              "displayName": "searchFilter",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "exec-wf03",
+      "name": "Execute WF 03 - Qualify",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [896, 160],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "qFqHqkg2nsX3jP59" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "searchFilter": "={{ $('Build Search Filter').first().json.searchFilter }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "searchFilter",
+              "displayName": "searchFilter",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "exec-wf04a",
+      "name": "Execute WF 04a - Dispatch",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1120, 160],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { dispatchedAt: $now.toISO(), maxWaitMinutes: 45 } }];"
+      },
+      "id": "record-time",
+      "name": "Record Dispatch Time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1344, 160]
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "id": "poll-wait",
+      "name": "Wait 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1568, 160],
+      "webhookId": "b3c8e7f1-9a2d-4e5b-8c1f-6d3a7b9e0f12"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?enrichment_status=not.in.(enriched,failed)&website=not.is.null&qualification_status=neq.unqualified{{ (() => { try { const f = $('Build Search Filter').first().json.searchFilter; return f ? '&search_string=' + f : ''; } catch(e) { return ''; } })() }}&select=id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-pending",
+      "name": "Check Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1792, 80],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst hasId = response.id !== undefined && response.id !== null;\nconst hasPending = hasId;\n\nconst dispatchedAt = $('Record Dispatch Time').first().json.dispatchedAt;\nconst maxWaitMinutes = $('Record Dispatch Time').first().json.maxWaitMinutes;\nconst elapsedMs = Date.now() - new Date(dispatchedAt).getTime();\nconst elapsedMinutes = Math.round(elapsedMs / 60000);\nconst isTimedOut = elapsedMinutes >= maxWaitMinutes;\n\nlet pollCount = 0;\ntry {\n  pollCount = $('Evaluate Poll').first().json.pollCount || 0;\n} catch(e) {}\npollCount++;\n\nreturn [{ json: { hasPending, isTimedOut, elapsedMinutes, pollCount } }];"
+      },
+      "id": "eval-poll",
+      "name": "Evaluate Poll",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2016, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [{ "id": "1", "leftValue": "={{ $json.hasPending }}", "rightValue": "", "operator": { "type": "boolean", "operation": "false", "singleValue": true } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-done",
+      "name": "Enrichment Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [2240, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "version": 3, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [{ "id": "1", "leftValue": "={{ $json.isTimedOut }}", "rightValue": "", "operator": { "type": "boolean", "operation": "true", "singleValue": true } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-timeout",
+      "name": "Timeout?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [2464, 256]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_GOOGLE_URL }}/rest/v1/businesses?enrichment_status=not.in.(enriched,failed)&website=not.is.null{{ (() => { try { const f = $('Build Search Filter').first().json.searchFilter; return f ? '&search_string=' + f : ''; } catch(e) { return ''; } })() }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_GOOGLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"enrichment_status\": \"failed\", \"enriched_at\": {{ JSON.stringify($now.toISO()) }}}",
+        "options": {}
+      },
+      "id": "mark-timeout-failed",
+      "name": "Mark Timeout Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2688, 256]
+    },
+    {
+      "parameters": {
+        "workflowId": { "value": "j9OWBXm1AMH54Ieq" },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "searchFilter": "={{ $('Build Search Filter').first().json.searchFilter }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "searchFilter",
+              "displayName": "searchFilter",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": { "waitForSubWorkflow": true }
+      },
+      "id": "exec-wf05",
+      "name": "Execute WF 05 - CSV Export",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [2464, 32],
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Get Failed Locations", "type": "main", "index": 0 }]] },
+    "Get Failed Locations": { "main": [[{ "node": "Has Items?", "type": "main", "index": 0 }]] },
+    "Has Items?": { "main": [[{ "node": "Loop Over Items", "type": "main", "index": 0 }], []] },
+    "Loop Over Items": { "main": [[{ "node": "Build Search Filter", "type": "main", "index": 0 }], [{ "node": "Execute WF 02 - Import", "type": "main", "index": 0 }]] },
+    "Execute WF 02 - Import": { "main": [[{ "node": "Wait 2s", "type": "main", "index": 0 }]] },
+    "Wait 2s": { "main": [[{ "node": "Loop Over Items", "type": "main", "index": 0 }]] },
+    "Build Search Filter": { "main": [[{ "node": "Execute WF 03 - Qualify", "type": "main", "index": 0 }]] },
+    "Execute WF 03 - Qualify": { "main": [[{ "node": "Execute WF 04a - Dispatch", "type": "main", "index": 0 }]] },
+    "Execute WF 04a - Dispatch": { "main": [[{ "node": "Record Dispatch Time", "type": "main", "index": 0 }]] },
+    "Record Dispatch Time": { "main": [[{ "node": "Wait 30s", "type": "main", "index": 0 }]] },
+    "Wait 30s": { "main": [[{ "node": "Check Pending", "type": "main", "index": 0 }]] },
+    "Check Pending": { "main": [[{ "node": "Evaluate Poll", "type": "main", "index": 0 }]] },
+    "Evaluate Poll": { "main": [[{ "node": "Enrichment Complete?", "type": "main", "index": 0 }]] },
+    "Enrichment Complete?": { "main": [[{ "node": "Execute WF 05 - CSV Export", "type": "main", "index": 0 }], [{ "node": "Timeout?", "type": "main", "index": 0 }]] },
+    "Timeout?": { "main": [[{ "node": "Mark Timeout Failed", "type": "main", "index": 0 }], [{ "node": "Wait 30s", "type": "main", "index": 0 }]] },
+    "Mark Timeout Failed": { "main": [[{ "node": "Execute WF 05 - CSV Export", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

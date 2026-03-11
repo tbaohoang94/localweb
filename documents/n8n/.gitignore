@@ -1,0 +1,28 @@
+# Secrets
+docker/.env
+.env
+*.env.local
+
+# Runtime data
+runtime/
+**/n8n_data/
+**/pg_data/
+**/redis_data/
+**/caddy_data/
+**/caddy_config/
+
+# Backups
+**/backups/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Python
+venv/
+__pycache__/

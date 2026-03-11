@@ -1,0 +1,223 @@
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      n8n:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  n8n:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "5678"
+    environment:
+      # Host & URLs
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${N8N_HOST}/
+      - N8N_EDITOR_BASE_URL=https://${N8N_HOST}
+      - N8N_SECURE_COOKIE=true
+      - TZ=Europe/Berlin
+
+      # Logging & Metrics
+      - N8N_LOG_FORMAT=${N8N_LOG_FORMAT}
+      - N8N_LOG_LEVEL=${N8N_LOG_LEVEL}
+      - N8N_METRICS=${N8N_METRICS}
+
+      # Encryption
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=${N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS}
+
+      # Community Packages
+      - N8N_COMMUNITY_PACKAGES=@apify/n8n-nodes-apify
+
+      # Queue Mode
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=${QUEUE_BULL_REDIS_HOST}
+      - QUEUE_BULL_REDIS_PORT=${QUEUE_BULL_REDIS_PORT}
+
+      # Database
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
+      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
+      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
+      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+
+      # Task Runner & Concurrency
+      - N8N_RUNNERS_MAX_OLD_SPACE_SIZE=2048
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=40
+
+      # Allow env vars in expressions
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+      # External modules for Code nodes
+      - NODE_FUNCTION_ALLOW_EXTERNAL=apify-client,cheerio,puppeteer,puppeteer-core
+
+      # Puppeteer / Chromium
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+      # Supabase google-maps-lead-pipeline
+      - SUPABASE_GOOGLE_URL=${SUPABASE_GOOGLE_URL}
+      - SUPABASE_GOOGLE_KEY=${SUPABASE_GOOGLE_KEY}
+
+      # Supabase close-sync
+      - SUPABASE_LEADS_URL=${SUPABASE_LEADS_URL}
+      - SUPABASE_LEADS_KEY=${SUPABASE_LEADS_KEY}
+
+      # Apify
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+
+      # OpenAI
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ../../files:/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  n8n-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: worker
+    environment:
+      # Encryption
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # Queue Mode
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=${QUEUE_BULL_REDIS_HOST}
+      - QUEUE_BULL_REDIS_PORT=${QUEUE_BULL_REDIS_PORT}
+
+      # Database
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
+      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
+      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
+      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+
+      # Task Runner & Concurrency
+      - N8N_RUNNERS_MAX_OLD_SPACE_SIZE=2048
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=40
+
+      # External modules for Code nodes
+      - NODE_FUNCTION_ALLOW_EXTERNAL=apify-client,cheerio,puppeteer,puppeteer-core
+
+      # Puppeteer / Chromium
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+      # Allow env vars in expressions
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+      # Supabase google-maps-lead-pipeline
+      - SUPABASE_GOOGLE_URL=${SUPABASE_GOOGLE_URL}
+      - SUPABASE_GOOGLE_KEY=${SUPABASE_GOOGLE_KEY}
+
+      # Supabase close-sync
+      - SUPABASE_LEADS_URL=${SUPABASE_LEADS_URL}
+      - SUPABASE_LEADS_KEY=${SUPABASE_LEADS_KEY}
+
+      # Apify
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+
+      # OpenAI
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      - TZ=Europe/Berlin
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ../../files:/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pg_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  n8n_data:
