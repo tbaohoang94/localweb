@@ -47,7 +47,6 @@ export function isActiveStage(stage: PipelineStageKey): boolean {
 export const PIPELINE_ORDER: PipelineStageKey[] = [
   "EG stattgefunden",
   "SG stattgefunden",
-  "Angebot verschickt",
   "Won",
 ];
 

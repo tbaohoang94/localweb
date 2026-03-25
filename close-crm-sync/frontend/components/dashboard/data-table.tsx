@@ -25,6 +25,8 @@ interface DataTableProps<T extends Record<string, any>> {
   rows: T[];
   sortKey?: string;
   onSort?: (key: string) => void;
+  summaryRow?: Record<string, any>;
+  avgRow?: Record<string, any>;
 }
 
 export default function DataTable<T extends Record<string, any>>({
@@ -32,6 +34,8 @@ export default function DataTable<T extends Record<string, any>>({
   rows,
   sortKey,
   onSort,
+  summaryRow,
+  avgRow,
 }: DataTableProps<T>) {
   if (!rows.length) {
     return (
@@ -90,6 +94,46 @@ export default function DataTable<T extends Record<string, any>>({
               ))}
             </TableRow>
           ))}
+          {summaryRow && (
+            <TableRow className="border-t-2 border-foreground/20 bg-muted/30 hover:bg-muted/30">
+              {columns.map((col) => (
+                <TableCell
+                  key={col.key}
+                  className={cn(
+                    "whitespace-nowrap py-3 font-semibold",
+                    col.right && "text-right",
+                    col.mono && "tabnum"
+                  )}
+                >
+                  {summaryRow[col.key] !== undefined
+                    ? col.render
+                      ? col.render(summaryRow[col.key], summaryRow as T)
+                      : summaryRow[col.key]
+                    : ""}
+                </TableCell>
+              ))}
+            </TableRow>
+          )}
+          {avgRow && (
+            <TableRow className="bg-muted/15 hover:bg-muted/15">
+              {columns.map((col) => (
+                <TableCell
+                  key={col.key}
+                  className={cn(
+                    "whitespace-nowrap py-3 font-medium text-muted-foreground italic",
+                    col.right && "text-right",
+                    col.mono && "tabnum"
+                  )}
+                >
+                  {avgRow[col.key] !== undefined
+                    ? col.render
+                      ? col.render(avgRow[col.key], avgRow as T)
+                      : avgRow[col.key]
+                    : ""}
+                </TableCell>
+              ))}
+            </TableRow>
+          )}
         </TableBody>
       </Table>
     </div>

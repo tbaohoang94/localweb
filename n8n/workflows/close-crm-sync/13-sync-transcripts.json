@@ -1,0 +1,218 @@
+{
+  "name": "13 - Close CRM Sync - Sync Transcripts",
+  "nodes": [
+    {
+      "id": "start-13",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300],
+      "parameters": { "inputSource": "passthrough" }
+    },
+    {
+      "id": "find-calls-13",
+      "name": "Find Calls To Transcribe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "parameters": {
+        "jsCode": "const CLOSE_AUTH = 'Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=';\nconst SB = $env.SUPABASE_LEADS_URL;\nconst KEY = $env.SUPABASE_LEADS_KEY;\nconst h = { apikey: KEY, Authorization: 'Bearer ' + KEY };\n\n// 1. EG stattgefunden type\nconst types = await this.helpers.httpRequest({\n  url: SB + '/rest/v1/custom_activity_types?close_type_id=eq.actitype_0Pow7dFbqAOrFjLsCT068D&select=id',\n  headers: h\n});\nif (!types?.length) return [{ json: { _noWork: true } }];\n\n// 2. Recent EG activities (90 days, limit 20)\nconst cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();\nconst acts = await this.helpers.httpRequest({\n  url: SB + '/rest/v1/custom_activities?type_id=eq.' + types[0].id + '&close_created_at=gte.' + cutoff + '&select=close_activity_id,close_lead_id,user_id,close_created_at&order=close_created_at.desc&limit=20',\n  headers: h\n});\nif (!acts?.length) return [{ json: { _noWork: true } }];\n\n// 3. Lead UUID mapping\nconst lids = [...new Set(acts.map(a => a.close_lead_id).filter(Boolean))];\nconst leads = await this.helpers.httpRequest({\n  url: SB + '/rest/v1/leads?close_lead_id=in.(' + lids.join(',') + ')&select=id,close_lead_id',\n  headers: h\n});\nconst lmap = {};\nfor (const l of leads) lmap[l.close_lead_id] = l.id;\n\n// 4. Per activity: get calls from Close, check existing transcripts\nconst result = [];\nfor (const act of acts) {\n  const lu = lmap[act.close_lead_id];\n  if (!lu) continue;\n\n  const d = new Date(act.close_created_at);\n  const ds = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();\n  const de = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).toISOString();\n\n  try {\n    const cr = await this.helpers.httpRequest({\n      url: 'https://api.close.com/api/v1/activity/call/?lead_id=' + act.close_lead_id + '&date_created__gte=' + ds + '&date_created__lt=' + de + '&_limit=50',\n      headers: { Authorization: CLOSE_AUTH, Accept: 'application/json' }\n    });\n    const recs = (cr.data || []).filter(c => c.recording_url);\n    if (!recs.length) continue;\n\n    // Supabase call UUIDs\n    const cids = recs.map(c => c.id);\n    const sc = await this.helpers.httpRequest({\n      url: SB + '/rest/v1/calls?close_call_id=in.(' + cids.join(',') + ')&select=id,close_call_id',\n      headers: h\n    });\n    const cm = {};\n    for (const c of sc) cm[c.close_call_id] = c.id;\n\n    // Existing transcripts\n    const uuids = Object.values(cm);\n    let done = new Set();\n    if (uuids.length) {\n      const ex = await this.helpers.httpRequest({\n        url: SB + '/rest/v1/transcripts?source_type=eq.call&source_id=in.(' + uuids.join(',') + ')&select=source_id',\n        headers: h\n      });\n      done = new Set((ex || []).map(t => t.source_id));\n    }\n\n    for (const call of recs) {\n      const cu = cm[call.id];\n      if (!cu || done.has(cu)) continue;\n      result.push({ json: {\n        closeCallId: call.id, callUuid: cu,\n        leadId: act.close_lead_id, leadUuid: lu,\n        ownerUuid: act.user_id,\n        recordingUrl: call.recording_url,\n        dateCreated: act.close_created_at\n      }});\n    }\n    await new Promise(r => setTimeout(r, 300));\n  } catch (e) { /* skip */ }\n}\n\nif (!result.length) return [{ json: { _noWork: true } }];\nreturn result;"
+      }
+    },
+    {
+      "id": "has-calls-13",
+      "name": "Has Calls?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [520, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "call-check",
+              "leftValue": "={{ $json.closeCallId }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "exists" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "process-call-13",
+      "name": "Process Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 200],
+      "parameters": {
+        "jsCode": "const item = $json;\nconst CLOSE_AUTH = 'Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo=';\n\n// 1. Resolve recording URL (Close 302 redirect)\nlet directUrl = item.recordingUrl;\ntry {\n  const resp = await this.helpers.httpRequest({\n    method: 'HEAD', url: item.recordingUrl,\n    headers: { Authorization: CLOSE_AUTH },\n    disableFollowRedirect: true, returnFullResponse: true, ignoreHttpStatusErrors: true\n  });\n  if (resp.headers?.location) directUrl = resp.headers.location;\n} catch (e) {\n  const loc = e?.response?.headers?.location || e?.cause?.response?.headers?.location;\n  if (loc) directUrl = loc;\n}\n\n// 2. Download audio\nlet audioData;\ntry {\n  audioData = await this.helpers.httpRequest({\n    url: directUrl, encoding: 'arraybuffer', timeout: 120000\n  });\n} catch (e) {\n  return [{ json: { _skipped: true, _reason: 'download_failed', closeCallId: item.closeCallId } }];\n}\n\n// 3. Whisper transcribe\nlet whisper;\ntry {\n  const buf = Buffer.isBuffer(audioData) ? audioData : Buffer.from(audioData);\n  whisper = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.openai.com/v1/audio/transcriptions',\n    headers: { Authorization: 'Bearer ' + $env.OPENAI_API_KEY },\n    formData: {\n      model: 'whisper-1',\n      language: 'de',\n      file: { value: buf, options: { filename: 'audio.mp3', contentType: 'audio/mpeg' } }\n    },\n    timeout: 300000\n  });\n} catch (e) {\n  return [{ json: { _skipped: true, _reason: 'transcribe_failed', closeCallId: item.closeCallId } }];\n}\n\nconst text = whisper?.text || '';\nif (!text) return [{ json: { _skipped: true, _reason: 'empty_transcript', closeCallId: item.closeCallId } }];\n\nreturn [{ json: {\n  source_type: 'call',\n  source_id: item.callUuid,\n  lead_id: item.leadUuid,\n  content: text,\n  recording_url: item.recordingUrl,\n  call_type: 'erstgespraech',\n  synced_at: new Date().toISOString(),\n  _skipped: false\n} }];"
+      }
+    },
+    {
+      "id": "aggregate-13",
+      "name": "Aggregate Transcripts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 200],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst transcripts = items.map(i => i.json).filter(t => !t._skipped && t.source_type === 'call');\nconst skipped = items.filter(i => i.json._skipped).length;\n\nreturn [{ json: { transcripts, count: transcripts.length, skipped } }];"
+      }
+    },
+    {
+      "id": "has-transcripts-13",
+      "name": "Has Transcripts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1300, 200],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "transcript-check",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "save-13",
+      "name": "Save Transcripts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 100],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/transcripts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.transcripts) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "log-success-13",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1820, 100],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'sync_transcripts', status: 'success', records_synced: $('Aggregate Transcripts').first().json.count, error_message: $('Aggregate Transcripts').first().json.skipped > 0 ? 'Skipped: ' + $('Aggregate Transcripts').first().json.skipped : null, finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "log-no-calls-13",
+      "name": "Log No Calls",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 400],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'sync_transcripts', status: 'success', error_message: 'No untranscribed EG calls found', finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "log-no-transcripts-13",
+      "name": "Log No Transcripts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 300],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_LEADS_URL }}/rest/v1/sync_runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_LEADS_KEY }}" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'sync_transcripts', status: 'success', error_message: 'All transcriptions failed or empty', finished_at: new Date().toISOString() }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [[{ "node": "Find Calls To Transcribe", "type": "main", "index": 0 }]]
+    },
+    "Find Calls To Transcribe": {
+      "main": [[{ "node": "Has Calls?", "type": "main", "index": 0 }]]
+    },
+    "Has Calls?": {
+      "main": [
+        [{ "node": "Process Call", "type": "main", "index": 0 }],
+        [{ "node": "Log No Calls", "type": "main", "index": 0 }]
+      ]
+    },
+    "Process Call": {
+      "main": [[{ "node": "Aggregate Transcripts", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Transcripts": {
+      "main": [[{ "node": "Has Transcripts?", "type": "main", "index": 0 }]]
+    },
+    "Has Transcripts?": {
+      "main": [
+        [{ "node": "Save Transcripts", "type": "main", "index": 0 }],
+        [{ "node": "Log No Transcripts", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Transcripts": {
+      "main": [[{ "node": "Log Success", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "any",
+    "errorWorkflow": "OrTCUp8ufHjtmIcm"
+  }
+}

@@ -98,10 +98,15 @@ export async function fetchPipelineStages(
   filters: DashboardFilters
 ): Promise<PipelineStage[]> {
   const opps = await fetchOpportunitiesRaw(supabase, filters);
+  const toDate = filters.to + "T23:59:59";
 
   const stageMap = new Map<string, { count: number; value: number }>();
   for (const opp of opps) {
     const stage = mapStatus(opp.status);
+    // Won/Lost nur zaehlen wenn closed_at im gewaehlten Zeitraum liegt
+    if ((stage === "Won" || stage === "Lost") && (!opp.closed_at || opp.closed_at < filters.from || opp.closed_at > toDate)) {
+      continue;
+    }
     const prev = stageMap.get(stage) ?? { count: 0, value: 0 };
     stageMap.set(stage, {
       count: prev.count + 1,
@@ -309,13 +314,13 @@ export async function fetchCloserKPIs(
 
   return closers.map((closer) => {
     const myOpps = opps.filter((o) => o.user_id === closer.id);
-    const myWon = myOpps.filter((o) => mapStatus(o.status) === "Won");
-    const myLost = myOpps.filter((o) => mapStatus(o.status) === "Lost");
+    const myWon = myOpps.filter((o) => mapStatus(o.status) === "Won" && o.closed_at && o.closed_at >= filters.from && o.closed_at <= toDate);
+    const myLost = myOpps.filter((o) => mapStatus(o.status) === "Lost" && o.closed_at && o.closed_at >= filters.from && o.closed_at <= toDate);
     const myActive = myOpps.filter((o) => isActiveStage(mapStatus(o.status)));
     const umsatz = myWon.reduce((s, o) => s + (o.value ?? 0), 0);
     const won = myWon.length;
     const lost = myLost.length;
-    const allOpps = myOpps.length;
+    const allOpps = won + lost + myActive.length;
     const winRate = allOpps > 0 ? (won / allOpps) * 100 : 0;
     const avgDeal = won > 0 ? umsatz / won : 0;
 
@@ -355,7 +360,7 @@ export async function fetchCloserKPIs(
     // Win Rate auf SG: Won / Alle Opps deren Lead ein SG hatte
     const sgLeads = sgLeadMap.get(closer.id) ?? new Set<string>();
     const oppsWithSg = myOpps.filter((o) => sgLeads.has(o.lead_id));
-    const wonWithSg = oppsWithSg.filter((o) => mapStatus(o.status) === "Won").length;
+    const wonWithSg = oppsWithSg.filter((o) => mapStatus(o.status) === "Won" && o.closed_at && o.closed_at >= filters.from && o.closed_at <= toDate).length;
     const winRateSG = oppsWithSg.length > 0 ? (wonWithSg / oppsWithSg.length) * 100 : 0;
 
     return {
@@ -691,13 +696,18 @@ export async function fetchRevenueByMonth(
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
   sixMonthsAgo.setDate(1);
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("opportunities")
     .select("value, closed_at, confidence")
     .ilike("status", "%Won%")
     .gte("closed_at", sixMonthsAgo.toISOString().split("T")[0])
     .order("closed_at");
 
+  if (filters.rep !== "Alle") {
+    query = query.eq("user_id", filters.rep);
+  }
+
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
 
   const monthMap = new Map<string, number>();
@@ -817,18 +827,51 @@ export async function fetchCoachingCalls(
   }));
 }
 
-/* ─── COACHING: Coldcaller Calls >30s ─── */
+/* ─── COACHING: Coldcaller Calls >20s ─── */
+
+export interface ColdcallObjection {
+  einwand: string;
+  category: string;
+  handling: "gut" | "mittel" | "schwach";
+}
+
+export interface ColdcallerCall {
+  id: string;
+  date: string;
+  lead: string;
+  closeLeadId: string;
+  duration: string;
+  durationSec: number;
+  recordingUrl: string;
+  googleDriveUrl: string;
+  transcript: string | null;
+  aiSummary: string | null;
+  decisionMakerReached: boolean | null;
+  objections: ColdcallObjection[] | null;
+  score: number | null;
+  scoreReasoning: string | null;
+  callResult: string | null;
+}
 
 export async function fetchColdcallerCalls(
   supabase: SupabaseClient,
   filters: DashboardFilters
-) {
+): Promise<ColdcallerCall[]> {
+  // Fetch caller user IDs to filter calls by role
+  const { data: callerUsers } = await supabase
+    .from("users")
+    .select("id")
+    .eq("role", "caller");
+  const callerIds = (callerUsers ?? []).map((u: any) => u.id);
+  if (callerIds.length === 0) return [];
+
   let query = supabase
     .from("calls")
     .select("id, user_id, lead_id, duration, close_created_at, recording_url, leads(lead_name, close_lead_id)")
     .gte("close_created_at", filters.from)
     .lte("close_created_at", filters.to + "T23:59:59")
-    .gt("duration", 30)
+    .gt("duration", 20)
+    .in("user_id", callerIds)
     .order("close_created_at", { ascending: false })
     .limit(100);
 
@@ -841,6 +884,8 @@ export async function fetchColdcallerCalls(
 
   const callIds = (data ?? []).map((c: any) => c.id).filter(Boolean);
   const driveMap: Record<string, string> = {};
+  const analysisMap: Record<string, { transcript: string | null; ai_summary: string | null; decision_maker_reached: boolean | null; objections: ColdcallObjection[] | null; score: number | null; score_reasoning: string | null; call_result: string | null }> = {};
+
   if (callIds.length > 0) {
     const { data: transcripts } = await supabase
       .from("transcripts")
@@ -849,26 +894,81 @@ export async function fetchColdcallerCalls(
     for (const t of transcripts ?? []) {
       if (t.source_id && t.google_drive_url) driveMap[t.source_id] = t.google_drive_url;
     }
+
+    const { data: analyses } = await supabase
+      .from("coldcall_analyses")
+      .select("call_id, transcript, ai_summary, decision_maker_reached, objections, score, score_reasoning, call_result")
+      .in("call_id", callIds);
+    for (const a of analyses ?? []) {
+      if (a.call_id) {
+        analysisMap[a.call_id] = {
+          transcript: a.transcript,
+          ai_summary: a.ai_summary,
+          decision_maker_reached: a.decision_maker_reached,
+          objections: a.objections as ColdcallObjection[] | null,
+          score: a.score,
+          score_reasoning: a.score_reasoning,
+          call_result: a.call_result,
+        };
+      }
+    }
   }
 
-  return (data ?? []).map((call) => ({
-    id: call.id,
-    date: call.close_created_at ? formatDateShort(call.close_created_at) : "–",
-    lead: (call as any).leads?.lead_name ?? "Unbekannt",
-    closeLeadId: (call as any).leads?.close_lead_id ?? "",
-    duration: `${Math.round((call.duration ?? 0) / 60)} Min`,
-    durationSec: call.duration ?? 0,
-    recordingUrl: (call as any).recording_url ?? "",
-    googleDriveUrl: driveMap[call.id] ?? "",
-  }));
+  return (data ?? []).map((call) => {
+    const analysis = analysisMap[call.id];
+    return {
+      id: call.id,
+      date: call.close_created_at ? formatDateShort(call.close_created_at) : "–",
+      lead: (call as any).leads?.lead_name ?? "Unbekannt",
+      closeLeadId: (call as any).leads?.close_lead_id ?? "",
+      duration: `${Math.round((call.duration ?? 0) / 60)} Min`,
+      durationSec: call.duration ?? 0,
+      recordingUrl: (call as any).recording_url ?? "",
+      googleDriveUrl: driveMap[call.id] ?? "",
+      transcript: analysis?.transcript ?? null,
+      aiSummary: analysis?.ai_summary ?? null,
+      decisionMakerReached: analysis?.decision_maker_reached ?? null,
+      objections: analysis?.objections ?? null,
+      score: analysis?.score ?? null,
+      scoreReasoning: analysis?.score_reasoning ?? null,
+      callResult: analysis?.call_result ?? null,
+    };
+  });
 }
 
 /* ─── COACHING: Setting Activities (EG stattgefunden) ─── */
 
+export interface TranscriptQuestion {
+  question: string;
+  category: string;
+  quality: "gut" | "mittel" | "schwach";
+}
+
+export interface SettingActivity {
+  id: string;
+  date: string;
+  lead: string;
+  closeLeadId: string;
+  ergebnis: string;
+  closerScoring: string;
+  leadScoring: string;
+  closerScoreAI: number | null;
+  closerScoreReasoning: string | null;
+  leadScoreAI: number | null;
+  leadScoreReasoning: string | null;
+  questionsAsked: TranscriptQuestion[] | null;
+  duration: string;
+  durationSec: number;
+  transcriptId: string;
+  transcript: string | null;
+  aiSummary: string | null;
+  googleDriveUrl: string;
+}
+
 export async function fetchSettingActivities(
   supabase: SupabaseClient,
   filters: DashboardFilters
-) {
+): Promise<SettingActivity[]> {
   const { data: typeRows } = await supabase
     .from("custom_activity_types")
     .select("id")
@@ -896,31 +996,74 @@ export async function fetchSettingActivities(
   if (error) throw new Error(error.message);
 
   const leadIds = (data ?? []).map((a: any) => a.lead_id).filter(Boolean);
-  const transcriptMap: Record<string, string> = {};
-  const driveMap: Record<string, string> = {};
+  const transcriptMap: Record<string, { id: string; content: string | null; aiSummary: string | null; driveUrl: string; closerScoreAI: number | null; closerScoreReasoning: string | null; leadScoreAI: number | null; leadScoreReasoning: string | null; questionsAsked: TranscriptQuestion[] | null }> = {};
+  const durationMap: Record<string, number> = {};
+
   if (leadIds.length > 0) {
+    // Fetch transcripts with content + ai_summary + scoring
     const { data: transcripts } = await supabase
       .from("transcripts")
-      .select("id, lead_id, google_drive_url")
-      .in("lead_id", leadIds);
+      .select("id, lead_id, content, ai_summary, google_drive_url, closer_score, closer_score_reasoning, lead_score, lead_score_reasoning, questions_asked")
+      .in("lead_id", leadIds)
+      .order("created_at", { ascending: false });
     for (const t of transcripts ?? []) {
-      if (t.lead_id) transcriptMap[t.lead_id] = t.id;
-      if (t.lead_id && t.google_drive_url) driveMap[t.lead_id] = t.google_drive_url;
+      if (t.lead_id && !transcriptMap[t.lead_id]) {
+        transcriptMap[t.lead_id] = {
+          id: t.id,
+          content: (t as any).content,
+          aiSummary: (t as any).ai_summary,
+          driveUrl: (t as any).google_drive_url ?? "",
+          closerScoreAI: (t as any).closer_score,
+          closerScoreReasoning: (t as any).closer_score_reasoning,
+          leadScoreAI: (t as any).lead_score,
+          leadScoreReasoning: (t as any).lead_score_reasoning,
+          questionsAsked: (t as any).questions_asked,
+        };
+      }
+    }
+
+    // Fetch call durations for these leads (most recent call per lead)
+    const { data: calls } = await supabase
+      .from("calls")
+      .select("lead_id, duration")
+      .in("lead_id", leadIds)
+      .gt("duration", 0)
+      .order("close_created_at", { ascending: false });
+    for (const c of calls ?? []) {
+      if (c.lead_id && !durationMap[c.lead_id]) {
+        durationMap[c.lead_id] = c.duration ?? 0;
+      }
     }
   }
 
   const ergebnisKey = jsonbKey(CLOSE_ACTIVITY_FIELDS.EG_ERGEBNIS);
+  const lsKey = jsonbKey(CLOSE_ACTIVITY_FIELDS.LEAD_SCORING);
+  const csKey = jsonbKey(CLOSE_ACTIVITY_FIELDS.CLOSER_SCORING);
 
   return (data ?? []).map((a: any) => {
-    const ergebnis = a.custom_fields?.[ergebnisKey] ?? "–";
+    const cf = a.custom_fields ?? {};
+    const ergebnis = cf[ergebnisKey] ?? "–";
+    const t = transcriptMap[a.lead_id];
+    const dur = durationMap[a.lead_id] ?? 0;
     return {
       id: a.id,
       date: a.close_created_at ? formatDateShort(a.close_created_at) : "–",
       lead: a.leads?.lead_name ?? "–",
       closeLeadId: a.leads?.close_lead_id ?? "",
       ergebnis: typeof ergebnis === "string" ? ergebnis : "–",
-      transcriptId: transcriptMap[a.lead_id] ?? "",
-      googleDriveUrl: driveMap[a.lead_id] ?? "",
+      closerScoring: cf[csKey] ?? "–",
+      leadScoring: cf[lsKey] ?? "–",
+      closerScoreAI: t?.closerScoreAI ?? null,
+      closerScoreReasoning: t?.closerScoreReasoning ?? null,
+      leadScoreAI: t?.leadScoreAI ?? null,
+      leadScoreReasoning: t?.leadScoreReasoning ?? null,
+      questionsAsked: t?.questionsAsked ?? null,
+      duration: dur > 0 ? `${Math.round(dur / 60)} Min` : "–",
+      durationSec: dur,
+      transcriptId: t?.id ?? "",
+      transcript: t?.content ?? null,
+      aiSummary: t?.aiSummary ?? null,
+      googleDriveUrl: t?.driveUrl ?? "",
     };
   });
 }

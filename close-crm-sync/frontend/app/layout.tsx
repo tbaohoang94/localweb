@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import ChunkReload from "@/components/chunk-reload";
 import "./globals.css";
 
 const fontSans = Plus_Jakarta_Sans({
@@ -27,6 +28,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           {children}
         </ThemeProvider>
+        <ChunkReload />
         <Analytics />
         <SpeedInsights />
       </body>

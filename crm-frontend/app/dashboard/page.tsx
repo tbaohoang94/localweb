@@ -59,7 +59,7 @@ export default function DashboardPage() {
   const triggerSync = useCallback(async () => {
     setSyncing(true);
     try {
-      await fetch("https://n8n.hoba-consulting.com/webhook/full-sync", { method: "POST" });
+      await fetch(`${process.env.NEXT_PUBLIC_N8N_WEBHOOK_URL}/webhook/full-sync`, { method: "POST" });
     } catch {
       // ignore – webhook may not return JSON
     }

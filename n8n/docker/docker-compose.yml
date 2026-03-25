@@ -103,6 +103,8 @@ services:
       # Google Drive
       GOOGLE_DRIVE_DEMODESK_FOLDER_ID: ${GOOGLE_DRIVE_DEMODESK_FOLDER_ID:-}
 
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "5678:5678"
     volumes:

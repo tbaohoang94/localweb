@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import KpiCard from "@/components/dashboard/kpi-card";
 import ChartCard from "@/components/dashboard/chart-card";
@@ -27,7 +27,7 @@ export default function ColdcallerView({ filters }: { filters: Filters }) {
     return (
       <div className="p-6 flex flex-col gap-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (<Skeleton key={i} className="h-24 rounded-xl" />))}
+          {Array.from({ length: 4 }).map((_, i) => (<Skeleton key={i} className="h-24 rounded-xl" />))}
         </div>
         <Skeleton className="h-60 rounded-xl" />
         <Skeleton className="h-60 rounded-xl" />
@@ -37,6 +37,7 @@ export default function ColdcallerView({ filters }: { filters: Filters }) {
 
   const callerData = callers ?? [];
   const sorted = [...callerData].sort((a: any, b: any) => b[sortKey] - a[sortKey]);
+  const n = callerData.length;
 
   const totals = callerData.reduce(
     (acc, c) => ({
@@ -44,10 +45,13 @@ export default function ColdcallerView({ filters }: { filters: Filters }) {
       bruttoCalls: acc.bruttoCalls + c.bruttoCalls,
       nettoCalls: acc.nettoCalls + c.nettoCalls,
       terminGelegt: acc.terminGelegt + c.terminGelegt,
+      terminGelegtET: acc.terminGelegtET + c.terminGelegtET,
+      terminGelegtFT: acc.terminGelegtFT + c.terminGelegtFT,
       noShow: acc.noShow + c.noShow,
       egStattgefunden: acc.egStattgefunden + c.egStattgefunden,
+      neukunden: acc.neukunden + c.neukunden,
     }),
-    { talkTime: 0, bruttoCalls: 0, nettoCalls: 0, terminGelegt: 0, noShow: 0, egStattgefunden: 0 }
+    { talkTime: 0, bruttoCalls: 0, nettoCalls: 0, terminGelegt: 0, terminGelegtET: 0, terminGelegtFT: 0, noShow: 0, egStattgefunden: 0, neukunden: 0 }
   );
 
   const totalTerminQuote = totals.nettoCalls > 0
@@ -60,6 +64,36 @@ export default function ColdcallerView({ filters }: { filters: Filters }) {
     ? (totals.nettoCalls / totals.bruttoCalls) * 100
     : 0;
 
+  const summaryRow = {
+    name: "Gesamt",
+    talkTime: totals.talkTime,
+    bruttoCalls: totals.bruttoCalls,
+    nettoCalls: totals.nettoCalls,
+    erreichbarkeitsQuote: totalErreichbarkeit,
+    terminGelegtET: totals.terminGelegtET,
+    terminGelegtFT: totals.terminGelegtFT,
+    terminQuote: totalTerminQuote,
+    noShow: totals.noShow,
+    egStattgefunden: totals.egStattgefunden,
+    showUpRate: totalShowUpRate,
+    neukunden: totals.neukunden,
+  };
+
+  const avgRow = {
+    name: "Ø Schnitt",
+    talkTime: n > 0 ? Math.round(totals.talkTime / n) : 0,
+    bruttoCalls: n > 0 ? Math.round(totals.bruttoCalls / n) : 0,
+    nettoCalls: n > 0 ? Math.round(totals.nettoCalls / n) : 0,
+    erreichbarkeitsQuote: n > 0 ? callerData.reduce((s, c) => s + c.erreichbarkeitsQuote, 0) / n : 0,
+    terminGelegtET: n > 0 ? Math.round(totals.terminGelegtET / n) : 0,
+    terminGelegtFT: n > 0 ? Math.round(totals.terminGelegtFT / n) : 0,
+    terminQuote: n > 0 ? callerData.reduce((s, c) => s + c.terminQuote, 0) / n : 0,
+    noShow: n > 0 ? Math.round(totals.noShow / n) : 0,
+    egStattgefunden: n > 0 ? Math.round(totals.egStattgefunden / n) : 0,
+    showUpRate: n > 0 ? callerData.reduce((s, c) => s + c.showUpRate, 0) / n : 0,
+    neukunden: n > 0 ? Math.round(totals.neukunden / n) : 0,
+  };
+
   const chartData = trendData ?? [];
 
   return (
@@ -67,12 +101,8 @@ export default function ColdcallerView({ filters }: { filters: Filters }) {
       <div>
         <p className="text-sm font-semibold mb-4">Activity KPIs</p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
-          <KpiCard label="Gesprächszeit" value={minsToHHMM(totals.talkTime)} accent />
-          <KpiCard label="Bruttocalls" value={totals.bruttoCalls} />
-          <KpiCard label="Nettocalls" value={totals.nettoCalls} />
-          <KpiCard label="Erreichbarkeit" value={pct(totalErreichbarkeit)} />
-          <KpiCard label="Meetings" value={totals.terminGelegt} />
-          <KpiCard label="Terminquote" value={pct(totalTerminQuote)} />
+          <KpiCard label="Meetings Gesamt (ET+FT)" value={totals.terminGelegt} accent />
+          <KpiCard label="Meetings ET" value={totals.terminGelegtET} />
           <KpiCard label="No Show" value={totals.noShow} />
           <KpiCard label="Show up Rate" value={pct(totalShowUpRate)} />
         </div>
@@ -82,7 +112,7 @@ export default function ColdcallerView({ filters }: { filters: Filters }) {
       {!loadingTrend && chartData.length > 0 && (
         <ChartCard title="Meeting-Verlauf">
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+            <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="2 6" stroke="hsl(var(--border))" vertical={false} />
               <XAxis
                 dataKey="date"
@@ -98,8 +128,8 @@ export default function ColdcallerView({ filters }: { filters: Filters }) {
                 allowDecimals={false}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="count" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} name="Meetings" opacity={0.85} />
-            </BarChart>
+              <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 3, fill: "hsl(var(--primary))", strokeWidth: 0 }} name="Meetings" />
+            </LineChart>
           </ResponsiveContainer>
         </ChartCard>
       )}
@@ -125,6 +155,8 @@ export default function ColdcallerView({ filters }: { filters: Filters }) {
               { key: "neukunden", label: "Neukunden", right: true, mono: true },
             ]}
             rows={sorted}
+            summaryRow={summaryRow}
+            avgRow={avgRow}
           />
         ) : (
           <p className="text-sm text-muted-foreground py-8 text-center">Keine Daten für diesen Filter.</p>

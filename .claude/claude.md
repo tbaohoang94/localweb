@@ -23,9 +23,13 @@ n8n Automation:
 - n8n Skills/Agent     → documents/n8n/agent/
 - n8n Docker           → documents/n8n/docker/
 
+Google Files:
+- Generierte Dateien   → Google Files/               (PPTX, DOCX)
+
 Docs:
 - Apify API            → documents/apify-api-run-actor.md
 - n8n Overview         → documents/n8n/README.md
+- Corporate Identity   → knowledge/corporate-identity.md
 
 Config:
 - Root env             → .env
@@ -106,9 +110,20 @@ Never output: explanations, summaries, filler text, markdown styling (unless exp
 "new workflow <name>"        → Copy documents/n8n/projects/_template/
                               → Save to documents/n8n/projects/<name>/
 "new page <name>"            → Create route in target app's app/ folder
+"erstelle pptx/docx <name>"  → Generate file using CI from knowledge/corporate-identity.md
+                              → Save to Google Files/
 ```
 
 Shortcuts are abbreviations only – all rules still apply.
+
+## 7a. Google Files (PPTX / DOCX)
+
+When creating presentations or documents:
+1. Read `knowledge/corporate-identity.md` first — colors, fonts, logo, tone
+2. Use `pptxgenjs` (PPTX) or `docx` (DOCX) — already installed in root package.json
+3. Save all generated files to `Google Files/`
+4. Language: German. Tone: per Du, conversational
+5. Always apply CI colors: Primary `#0693e3`, Secondary `#32373c`, Accent `#00d084`
 
 ## 8. Boundaries
 

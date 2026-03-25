@@ -37,6 +37,10 @@ export const CLOSE_ACTIVITY_FIELDS = {
   EG_NOSHOW_ERGEBNIS: "cf_P5mZqkFdSf5MpxQe9yajrvaUlQQ9rWvMGa1igfab7Dn",
   /** Ergebnis on "SG - NoShow" activities */
   SG_NOSHOW_ERGEBNIS: "cf_1jQaceRH6hI9L0W635q7xDopqEbAbPyIy2RkOLPfk8o",
+  /** Lead Scoring (1_gut, 2_mittel, 3_schlecht) on EG stattgefunden */
+  LEAD_SCORING: "cf_SqsXC62ie7OiIDOuMsVIEgjDQY88yvqQxXJngtLRmBc",
+  /** Closer Scoring (0 - 100, 100 - 200) on EG stattgefunden */
+  CLOSER_SCORING: "cf_HMdFBMYVcmdWyAUeHQHPNI6QIc1VVU8pGRDAPIIKooL",
 } as const;
 
 /**

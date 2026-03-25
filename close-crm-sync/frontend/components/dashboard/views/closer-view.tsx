@@ -158,6 +158,52 @@ export default function CloserView({ filters }: { filters: Filters }) {
             { key: "pipeline", label: "Pipeline", right: true, mono: true, render: (v: number) => euro(v) },
           ]}
           rows={sortedClosers}
+          summaryRow={(() => {
+            const totEg = closerData.reduce((s, c) => s + c.eg, 0);
+            const totEgNo = closerData.reduce((s, c) => s + c.egNoShow, 0);
+            const totSg = closerData.reduce((s, c) => s + c.sg, 0);
+            const totSgNo = closerData.reduce((s, c) => s + c.sgNoShow, 0);
+            const totLost = closerData.reduce((s, c) => s + c.lost, 0);
+            const totOffene = closerData.reduce((s, c) => s + c.offeneOpps, 0);
+            return {
+              name: "Gesamt",
+              eg: totEg,
+              egNoShow: totEgNo,
+              egShowRate: (totEg + totEgNo) > 0 ? (totEg / (totEg + totEgNo)) * 100 : 0,
+              sg: totSg,
+              sgNoShow: totSgNo,
+              sgShowRate: (totSg + totSgNo) > 0 ? (totSg / (totSg + totSgNo)) * 100 : 0,
+              won: totalWon,
+              winRate: totalWinRate,
+              winRateSG: totalWinRateSG,
+              umsatz: totalUmsatz,
+              avgDeal: avgDeal,
+              cycle: avgCycle,
+              offeneOpps: totOffene,
+              pipeline: totalPipeline,
+            };
+          })()}
+          avgRow={(() => {
+            const n = closerData.length;
+            if (n === 0) return undefined;
+            return {
+              name: "Ø Schnitt",
+              eg: Math.round(closerData.reduce((s, c) => s + c.eg, 0) / n),
+              egNoShow: Math.round(closerData.reduce((s, c) => s + c.egNoShow, 0) / n),
+              egShowRate: closerData.reduce((s, c) => s + c.egShowRate, 0) / n,
+              sg: Math.round(closerData.reduce((s, c) => s + c.sg, 0) / n),
+              sgNoShow: Math.round(closerData.reduce((s, c) => s + c.sgNoShow, 0) / n),
+              sgShowRate: closerData.reduce((s, c) => s + c.sgShowRate, 0) / n,
+              won: Math.round(totalWon / n),
+              winRate: closerData.reduce((s, c) => s + c.winRate, 0) / n,
+              winRateSG: closerData.reduce((s, c) => s + c.winRateSG, 0) / n,
+              umsatz: Math.round(totalUmsatz / n),
+              avgDeal: closerData.reduce((s, c) => s + c.avgDeal, 0) / n,
+              cycle: Math.round(closerData.reduce((s, c) => s + c.cycle, 0) / n),
+              offeneOpps: Math.round(closerData.reduce((s, c) => s + c.offeneOpps, 0) / n),
+              pipeline: Math.round(totalPipeline / n),
+            };
+          })()}
         />
       </Card>
 

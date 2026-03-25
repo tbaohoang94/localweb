@@ -745,32 +745,105 @@ export async function fetchWeeklyHistory(
 
 /* ─── COACHING CALLS ─── */
 
+export interface CoachingCall {
+  id: string;
+  leadId: string;
+  date: string;
+  lead: string;
+  duration: string;
+  durationSec: number;
+  outcome: string;
+  closerScoring: string;
+  leadScoring: string;
+  transcript: string | null;
+  aiSummary: string | null;
+}
+
 export async function fetchCoachingCalls(
   supabase: SupabaseClient,
   filters: DashboardFilters
-) {
-  let query = supabase
+): Promise<CoachingCall[]> {
+  // Fetch calls
+  let callQuery = supabase
     .from("calls")
-    .select("id, user_id, lead_id, duration, disposition, close_created_at, note, leads(lead_name)")
+    .select("id, user_id, lead_id, duration, disposition, close_created_at, note, close_call_id, leads(lead_name)")
     .gte("close_created_at", filters.from)
     .lte("close_created_at", filters.to + "T23:59:59")
     .order("close_created_at", { ascending: false })
     .limit(20);
 
   if (filters.rep !== "Alle") {
-    query = query.eq("user_id", filters.rep);
+    callQuery = callQuery.eq("user_id", filters.rep);
   }
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  const { data: callData, error: callError } = await callQuery;
+  if (callError) throw new Error(callError.message);
+  const calls = callData ?? [];
+  if (calls.length === 0) return [];
 
-  return (data ?? []).map((call) => ({
-    date: call.close_created_at ? formatDateShort(call.close_created_at) : "–",
-    lead: (call as any).leads?.lead_name ?? "Unbekannt",
-    duration: `${Math.round((call.duration ?? 0) / 60)} Min`,
-    outcome: call.disposition ?? "–",
-    lostReason: "",
-  }));
+  // Collect lead IDs for transcript + activity lookup
+  const leadIds = Array.from(new Set(calls.map((c) => c.lead_id).filter(Boolean)));
+
+  // Fetch transcripts for these leads
+  const { data: transcriptData } = await supabase
+    .from("transcripts")
+    .select("lead_id, content, ai_summary, close_call_id")
+    .in("lead_id", leadIds)
+    .order("created_at", { ascending: false });
+
+  // Build transcript map (close_call_id -> transcript, fallback to lead_id)
+  const transcriptByCallId = new Map<string, { content: string; ai_summary: string | null }>();
+  const transcriptByLeadId = new Map<string, { content: string; ai_summary: string | null }>();
+  for (const t of transcriptData ?? []) {
+    if (t.close_call_id && !transcriptByCallId.has(t.close_call_id)) {
+      transcriptByCallId.set(t.close_call_id, { content: t.content, ai_summary: t.ai_summary });
+    }
+    if (t.lead_id && !transcriptByLeadId.has(t.lead_id)) {
+      transcriptByLeadId.set(t.lead_id, { content: t.content, ai_summary: t.ai_summary });
+    }
+  }
+
+  // Fetch EG stattgefunden activities for scoring fields
+  const egTypeId = "9f26a4e5-489a-42ce-a5dd-54a92bb02081"; // EG - stattgefunden UUID
+  const { data: activityData } = await supabase
+    .from("custom_activities")
+    .select("lead_id, custom_fields")
+    .eq("type_id", egTypeId)
+    .in("lead_id", leadIds);
+
+  // Build scoring map (lead_id -> scoring)
+  const scoringByLead = new Map<string, { closerScoring: string; leadScoring: string }>();
+  const lsKey = jsonbKey(CLOSE_ACTIVITY_FIELDS.LEAD_SCORING);
+  const csKey = jsonbKey(CLOSE_ACTIVITY_FIELDS.CLOSER_SCORING);
+  for (const a of activityData ?? []) {
+    if (a.lead_id && !scoringByLead.has(a.lead_id)) {
+      const cf = (a.custom_fields ?? {}) as Record<string, string>;
+      scoringByLead.set(a.lead_id, {
+        closerScoring: cf[csKey] ?? "–",
+        leadScoring: cf[lsKey] ?? "–",
+      });
+    }
+  }
+
+  return calls.map((call) => {
+    const t =
+      (call as any).close_call_id ? transcriptByCallId.get((call as any).close_call_id) : undefined;
+    const tFallback = t ?? transcriptByLeadId.get(call.lead_id);
+    const scoring = scoringByLead.get(call.lead_id);
+    return {
+      id: call.id,
+      leadId: call.lead_id,
+      date: call.close_created_at ? formatDateShort(call.close_created_at) : "–",
+      lead: (call as any).leads?.lead_name ?? "Unbekannt",
+      duration: `${Math.round((call.duration ?? 0) / 60)} Min`,
+      durationSec: call.duration ?? 0,
+      outcome: call.disposition ?? "–",
+      closerScoring: scoring?.closerScoring ?? "–",
+      leadScoring: scoring?.leadScoring ?? "–",
+      transcript: tFallback?.content ?? null,
+      aiSummary: tFallback?.ai_summary ?? null,
+    };
+  });
 }
 
 /* ─── MONTHLY PROVISION (Closer) ─── */

@@ -82,7 +82,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ status_id: 'stat_whEM29RxVUWk9pucJMWhPtBrjjadPn4DzUsYxV06bCs' }) }}",
+        "jsonBody": "={{ JSON.stringify({ status_id: 'stat_whEM29RxVUWk9pucJMWhPtBrjjadPn4DzUsYxV06bCs', 'custom.cf_mL3iH9tiMxrcg3l4VP0DfdD0Lf2l39l6FAy0xujAgxm': new Date().toISOString().split('T')[0], 'custom.cf_cgWJXeUknNLKNBL4ym7GMVEzXYEcmIV5xnITqWVIL59': $('Execute Workflow Trigger').first().json.customFields['custom.cf_y77N9RdNSBKzJ2UsdT6dToILfysmqqDo92lRkyf6uLP'] || null, 'custom.cf_jiEZFHPh52olStJmzL2nirCl16ZQYkotID0btjPWIUp': $('Execute Workflow Trigger').first().json.customFields['custom.cf_68agTdhUHbuAoZMjk425YhEjIuy1puR8wRuypJnHdjM'] || null }) }}",
         "options": {
           "response": {
             "response": {
@@ -161,16 +161,62 @@
     },
     {
       "parameters": {
-        "jsCode": "// E-Mail via SMTP senden (Hetzner Mailserver)\nconst input = $('Execute Workflow Trigger').first().json;\nconst leadId = input.leadId || 'unbekannt';\nconst activityId = input.activityId || 'unbekannt';\n\nconst smtpHost = 'mail.your-server.de';\nconst smtpPort = 587;\nconst smtpUser = 'bao.hoang@localweb.de';\nconst smtpPass = 'rXb67d64R91BeP1n';\n\n// Base64-Encode fuer SMTP AUTH\nconst authString = Buffer.from('\\u0000' + smtpUser + '\\u0000' + smtpPass).toString('base64');\n\n// E-Mail Inhalt\nconst subject = 'Neuer Kunde gewonnen - ' + leadId;\nconst body = 'Ein neuer Kunde wurde gewonnen.\\n\\nLead ID: ' + leadId + '\\nActivity ID: ' + activityId + '\\n\\nDie Opportunity wurde auf Won gesetzt und der Lead Status auf Kunde aktualisiert.\\n\\nDiese E-Mail wurde automatisch erstellt.';\n\n// MIME-Nachricht\nconst mimeMessage = [\n  'From: bao.hoang@localweb.de',\n  'To: bao.hoang@localweb.de',\n  'Subject: ' + subject,\n  'MIME-Version: 1.0',\n  'Content-Type: text/plain; charset=UTF-8',\n  '',\n  body\n].join('\\r\\n');\n\n// Einfacher SMTP-Client via TCP (net module nicht verfuegbar in Task Runner)\n// Stattdessen: HTTP-Fallback — Log und weitermachen\n// TODO: SMTP Credential in n8n erstellen und emailSend Node verwenden\n\nreturn [{ json: { emailSent: false, reason: 'SMTP requires n8n credential — see workflow notes', subject, to: 'bao.hoang@localweb.de', leadId, activityId } }];"
+        "method": "GET",
+        "url": "=https://api.close.com/api/v1/lead/{{ $('Extract Opportunity').first().json.leadId }}/?_fields=url,display_name",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YXBpXzJKd0JqaHMwYmZCUmJ5d3dHeXA0blUuMWlWV0NZVUUyRzE3NWh6NjJmNEJMRzo="
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
       },
-      "id": "email-27",
-      "name": "Send Email Notification",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "get-lead-27",
+      "name": "Get Lead for Google URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1440,
         100
       ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "fromEmail": "bao.hoang@localweb.de",
+        "toEmail": "bao.hoang@localweb.de",
+        "subject": "=Neuer Kunde gewonnen - {{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_3lPnpg4Krf7B81Ze5nOaQ3lmXXQqHVbeeXuv4lKlEa5'] || 'unbekannt' }}",
+        "emailType": "html",
+        "html": "=<p>Hallo :) Ich habe einen neuen Auftrag f&uuml;r euch &#127881;</p><hr><p><strong>Infos zu Auftrag:</strong> {{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_7vIu7RlAfotGEpAdvxIX1L7qPGXO9UAbP9pY9hL7RBU'] || '' }}</p><p><strong>Closer:</strong> {{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_NFxzYKxJwmiKsb98aMgCpTsjZRtvFaGppepIINl7ivO'] || '' }}</p><p><strong>Art des Auftrags:</strong> {{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_Iu0vWFiRdYB3bQibQpIHGfHwV1S6uYUEelIoD2hgCyf'] || '' }}</p><p><strong>Google Maps:</strong> {{ $('Get Lead for Google URL').first().json.url ? '<a href=\"' + $('Get Lead for Google URL').first().json.url + '\">' + $('Get Lead for Google URL').first().json.url + '</a>' : 'nicht vorhanden' }}</p><h3>Kontaktdaten</h3><p>(Siehe Auftrag in Anlage)</p><table><tr><td><strong>Name:</strong></td><td>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_3lPnpg4Krf7B81Ze5nOaQ3lmXXQqHVbeeXuv4lKlEa5'] || '' }}</td></tr><tr><td><strong>Telefon:</strong></td><td>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_kfhRkvyBz85eNrpGgN34jeE6x3jBtQex5rP2B7BUvUy'] || '' }}</td></tr><tr><td><strong>Mail:</strong></td><td>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_nbtPAUKD6rGldbEWoY06FErjrrNm7He1jd7IwksLdmv'] || '' }}</td></tr></table><h3>Vertragsdaten</h3><table><tr><td><strong>Start Datum:</strong></td><td>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_Q3mQ10nUD9ByxZvBNVu77ybMG3tKHDnAkpZebUOH4CK'] || '' }}</td></tr><tr><td><strong>Netto-Umsatz/Monat:</strong></td><td>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_y77N9RdNSBKzJ2UsdT6dToILfysmqqDo92lRkyf6uLP'] || '' }} &euro;</td></tr><tr><td><strong>Einrichtungsgeb&uuml;hr:</strong></td><td>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_f1WCiujmk2aK9PuGU2KeJA3HY27VKuGJ5ytBIKydnl9'] || '' }} &euro;</td></tr><tr><td><strong>Ratenzahlung:</strong></td><td>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_68agTdhUHbuAoZMjk425YhEjIuy1puR8wRuypJnHdjM'] || '' }}</td></tr><tr><td><strong>Mind. Vertragslaufzeit:</strong></td><td>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_1nKi5zt6PwvtucYYaLAbp9CoqWlJ2oZInZD249iuGRb'] || '' }} Monate</td></tr></table><p><strong>Sondervertragsklauseln:</strong><br>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_PcynTE5EuzPsCGhjyY8wpQyaEHhd7rMSzstUsUD0EBF'] || '' }}</p><p><strong>Leadkanal:</strong> {{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_Mg5Ue1UfNqNX6eoYhAAxiZY8jAoRqrLfGYj6s0Mp8r8'] || '' }}</p><h3>Anmerkungen/Infos/Sonderkonditionen f&uuml;r Kundenbetreuer</h3><p>{{ $('Execute Workflow Trigger').first().json.customFields['custom.cf_xkkqb7fn30tjdpeYguda1HbzMYHXxpln4f2sOH00FzF'] || '' }}</p><hr><p>Bitte Onboarding Termin mit dem Kunden vereinbaren</p><p>Tausend Dank und viel Spa&szlig; bei der Betreuung!</p>",
+        "options": {}
+      },
+      "id": "email-27",
+      "name": "Send Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1680,
+        100
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "SMTP_CREDENTIAL_ID",
+          "name": "Hetzner SMTP"
+        }
+      },
       "continueOnFail": true
     },
     {
@@ -359,7 +405,7 @@
       "main": [
         [
           {
-            "node": "Send Email Notification",
+            "node": "Get Lead for Google URL",
             "type": "main",
             "index": 0
           }
@@ -367,6 +413,17 @@
         [
           {
             "node": "Log Lead Error to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Lead for Google URL": {
+      "main": [
+        [
+          {
+            "node": "Send Email Notification",
             "type": "main",
             "index": 0
           }

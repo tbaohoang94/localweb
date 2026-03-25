@@ -1,0 +1,305 @@
+{
+  "name": "14 - Close CRM Sync - Transcribe Coldcalls",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a1000001-0001-4000-8000-000000000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 24, "triggerAtHour": 8 }]
+        }
+      },
+      "id": "a1000001-0001-4000-8000-000000000002",
+      "name": "Daily 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const SUPABASE_URL = $env.SUPABASE_URL;\nconst SUPABASE_KEY = $env.SUPABASE_SERVICE_KEY;\nconst headers = {\n  apikey: SUPABASE_KEY,\n  Authorization: \"Bearer \" + SUPABASE_KEY,\n  \"Content-Type\": \"application/json\"\n};\n\n// 1. Get caller user IDs\nconst usersResp = await this.helpers.httpRequest({\n  method: \"GET\",\n  url: SUPABASE_URL + \"/rest/v1/users?role=eq.caller&select=id\",\n  headers\n});\nconst callerIds = usersResp.map(u => u.id);\nif (callerIds.length === 0) return [];\n\n// 2. Get calls: duration>20, has recording, belongs to caller\nconst callerFilter = \"user_id=in.(\" + callerIds.join(\",\") + \")\";\nconst callsResp = await this.helpers.httpRequest({\n  method: \"GET\",\n  url: SUPABASE_URL + \"/rest/v1/calls?select=id,close_call_id,recording_url,user_id,lead_id,duration,close_created_at,close_lead_id&duration=gt.20&recording_url=not.is.null&\" + callerFilter + \"&order=close_created_at.desc&limit=50\",\n  headers\n});\nif (callsResp.length === 0) return [];\n\n// 3. Filter out calls that already have an analysis\nconst callIds = callsResp.map(c => c.id);\nconst analysesResp = await this.helpers.httpRequest({\n  method: \"GET\",\n  url: SUPABASE_URL + \"/rest/v1/coldcall_analyses?select=call_id&call_id=in.(\" + callIds.join(\",\") + \")\",\n  headers\n});\nconst processedIds = new Set(analysesResp.map(a => a.call_id));\n\nconst unprocessed = callsResp.filter(c => !processedIds.has(c.id));\nreturn unprocessed.map(c => ({ json: c }));"
+      },
+      "id": "a1000001-0001-4000-8000-000000000003",
+      "name": "Fetch Unprocessed Calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-has-calls",
+              "leftValue": "={{ $json.length ?? 0 }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1000001-0001-4000-8000-000000000004",
+      "name": "Has Calls?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "a1000001-0001-4000-8000-000000000005",
+      "name": "Loop Over Calls",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const CLOSE_AUTH = $env.CLOSE_API_KEY;\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const call = item.json;\n  const recordingUrl = call.recording_url;\n\n  if (!recordingUrl) {\n    results.push({ json: { ...call, directUrl: null, error: 'No recording URL' } });\n    continue;\n  }\n\n  try {\n    const headResp = await this.helpers.httpRequest({\n      method: 'HEAD',\n      url: recordingUrl,\n      headers: { 'Authorization': CLOSE_AUTH },\n      disableFollowRedirect: true,\n      returnFullResponse: true,\n      ignoreHttpStatusErrors: true\n    });\n\n    const loc = (headResp.headers || {}).location || (headResp.headers || {}).Location;\n    results.push({ json: { ...call, directUrl: loc || recordingUrl } });\n  } catch (e) {\n    results.push({ json: { ...call, directUrl: recordingUrl, resolveError: e.message } });\n  }\n}\n\nreturn results;"
+      },
+      "id": "a1000001-0001-4000-8000-000000000006",
+      "name": "Resolve Recording URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.directUrl }}",
+        "options": {
+          "response": {
+            "response": { "fullResponse": false, "responseFormat": "file" }
+          }
+        }
+      },
+      "id": "a1000001-0001-4000-8000-000000000007",
+      "name": "Download Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1360, 300],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model", "value": "whisper-1", "parameterType": "formData" },
+            { "name": "language", "value": "de", "parameterType": "formData" },
+            { "name": "file", "parameterType": "formBinaryData", "inputDataFieldName": "data" }
+          ]
+        },
+        "options": { "timeout": 300000 }
+      },
+      "id": "a1000001-0001-4000-8000-000000000008",
+      "name": "Whisper Transcribe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 300],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', response_format: { type: 'json_object' }, messages: [ { role: 'system', content: 'Du bist ein Coldcall-Coach fuer ein deutsches Sales-Team. Analysiere das folgende Telefongespraech-Transkript und antworte AUSSCHLIESSLICH mit validem JSON (kein Markdown, kein Text davor/danach).\\n\\nJSON-Schema:\\n{\\n  \"zusammenfassung\": \"2-3 Saetze Zusammenfassung des Gespraechs\",\\n  \"ergebnis\": \"Termin vereinbart|Interesse|Kein Interesse|Nicht erreicht|Gatekeeper|Aufgelegt\",\\n  \"entscheider_erreicht\": true/false,\\n  \"entscheider_details\": \"Begruendung warum Entscheider erreicht/nicht erreicht\",\\n  \"einwaende\": [{ \"einwand\": \"Text des Einwands\", \"category\": \"preis|zeit|bedarf|konkurrenz|intern|sonstige\", \"handling\": \"gut|mittel|schwach\" }],\\n  \"gespraechsqualitaet\": { \"score\": 0-10, \"reasoning\": \"Begruendung\" },\\n  \"verbesserungsvorschlaege\": [\"Vorschlag 1\", \"Vorschlag 2\"]\\n}\\n\\nErgebnis-Klassifizierung:\\n- \"Termin vereinbart\" = konkreter Termin wurde fixiert\\n- \"Interesse\" = Interesse signalisiert, aber kein fester Termin\\n- \"Kein Interesse\" = klar abgelehnt\\n- \"Nicht erreicht\" = Ansprechpartner nicht erreicht (AB, niemand da)\\n- \"Gatekeeper\" = nur mit Sekretariat/Empfang gesprochen\\n- \"Aufgelegt\" = Gespraech wurde abrupt beendet\\n\\nBewertungskriterien fuer gespraechsqualitaet:\\n- Gespraechseroeffnung und Vorstellung\\n- Bedarfsermittlung\\n- Umgang mit Einwaenden\\n- Nutzenargumentation\\n- Terminvereinbarung / Call-to-Action\\n- Gespraechsfuehrung und Tonalitaet\\n\\nEntscheider-Erkennung:\\n- Wurde nach dem Entscheider gefragt?\\n- Hat die Person Entscheidungskompetenz signalisiert?\\n- Wurde an eine andere Person verwiesen?' }, { role: 'user', content: $('Whisper Transcribe').first().json.text || 'Kein Transkript verfuegbar.' } ] }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "a1000001-0001-4000-8000-000000000009",
+      "name": "GPT-4o Mini Analyse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1800, 300],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const call = $('Loop Over Calls').first().json;\nconst transcriptText = $('Whisper Transcribe').first().json.text || null;\nconst gptRaw = $('GPT-4o Mini Analyse').first().json;\n\nlet analysis = {};\ntry {\n  const content = gptRaw.choices?.[0]?.message?.content;\n  analysis = content ? JSON.parse(content) : {};\n} catch (e) {\n  analysis = {};\n}\n\nconst einwaende = analysis.einwaende || [];\nconst score = analysis.gespraechsqualitaet?.score ?? null;\nconst scoreReasoning = analysis.gespraechsqualitaet?.reasoning || null;\n\nreturn [{\n  json: {\n    call_id: call.id,\n    close_call_id: call.close_call_id,\n    transcript: transcriptText,\n    ai_summary: analysis.zusammenfassung || null,\n    decision_maker_reached: analysis.entscheider_erreicht ?? null,\n    objections: einwaende,\n    score: score,\n    score_reasoning: scoreReasoning,\n    call_result: analysis.ergebnis || null,\n    synced_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a1000001-0001-4000-8000-000000000010",
+      "name": "Prepare Upsert Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2020, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/coldcall_analyses",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "a1000001-0001-4000-8000-000000000011",
+      "name": "Upsert to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2240, 300],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "a1000001-0001-4000-8000-000000000012",
+      "name": "Wait 2s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/sync_runs",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity: 'coldcall_analyses', status: 'success', records_synced: $('Loop Over Calls').first().json.length || 0 }) }}",
+        "options": {}
+      },
+      "id": "a1000001-0001-4000-8000-000000000013",
+      "name": "Log Sync Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 540]
+    },
+    {
+      "parameters": {},
+      "id": "a1000001-0001-4000-8000-000000000014",
+      "name": "No Calls to Process",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [920, 540]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [{ "node": "Fetch Unprocessed Calls", "type": "main", "index": 0 }]
+      ]
+    },
+    "Daily 08:00": {
+      "main": [
+        [{ "node": "Fetch Unprocessed Calls", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Unprocessed Calls": {
+      "main": [
+        [{ "node": "Has Calls?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Calls?": {
+      "main": [
+        [{ "node": "Loop Over Calls", "type": "main", "index": 0 }],
+        [{ "node": "No Calls to Process", "type": "main", "index": 0 }]
+      ]
+    },
+    "Loop Over Calls": {
+      "main": [
+        [{ "node": "Log Sync Run", "type": "main", "index": 0 }],
+        [{ "node": "Resolve Recording URL", "type": "main", "index": 0 }]
+      ]
+    },
+    "Resolve Recording URL": {
+      "main": [
+        [{ "node": "Download Audio", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download Audio": {
+      "main": [
+        [{ "node": "Whisper Transcribe", "type": "main", "index": 0 }]
+      ]
+    },
+    "Whisper Transcribe": {
+      "main": [
+        [{ "node": "GPT-4o Mini Analyse", "type": "main", "index": 0 }]
+      ]
+    },
+    "GPT-4o Mini Analyse": {
+      "main": [
+        [{ "node": "Prepare Upsert Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Upsert Data": {
+      "main": [
+        [{ "node": "Upsert to Supabase", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert to Supabase": {
+      "main": [
+        [{ "node": "Wait 2s", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait 2s": {
+      "main": [
+        [{ "node": "Loop Over Calls", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

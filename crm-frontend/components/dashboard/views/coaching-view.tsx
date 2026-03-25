@@ -12,11 +12,31 @@ import BadgeStatus from "@/components/dashboard/badge-status";
 import ErrorCard from "@/components/dashboard/error-card";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { euro } from "@/lib/formatters";
-import { fetchCoachingCalls, fetchWonDeals, fetchIndustryBreakdown } from "@/lib/dashboard-queries";
+import {
+  fetchCoachingCalls, fetchWonDeals, fetchIndustryBreakdown,
+  type CoachingCall,
+} from "@/lib/dashboard-queries";
 import { useDashboardQuery } from "@/hooks/use-dashboard-data";
 import type { Filters } from "@/lib/constants";
 import CustomTooltip from "./shared-tooltip";
+
+function LeadScoringBadge({ value }: { value: string }) {
+  if (value === "–") return <span className="text-muted-foreground">–</span>;
+  const map: Record<string, { label: string; type: "success" | "warning" | "danger" }> = {
+    "1_gut": { label: "Gut", type: "success" },
+    "2_mittel": { label: "Mittel", type: "warning" },
+    "3_schlecht": { label: "Schlecht", type: "danger" },
+  };
+  const m = map[value];
+  if (!m) return <BadgeStatus label={value} />;
+  return <BadgeStatus label={m.label} type={m.type} />;
+}
 
 export default function CoachingView({ filters }: { filters: Filters }) {
   const [notes, setNotes] = useState(
@@ -27,6 +47,7 @@ export default function CoachingView({ filters }: { filters: Filters }) {
     { id: 2, text: "3 Roleplay-Sessions bis Freitag", done: false },
     { id: 3, text: "Weekly Review Meeting vorbereiten", done: false },
   ]);
+  const [selectedCall, setSelectedCall] = useState<CoachingCall | null>(null);
 
   const { data: callsData, loading: l1, error: e1 } = useDashboardQuery(fetchCoachingCalls, filters);
   const { data: wonData, loading: l2, error: e2 } = useDashboardQuery(fetchWonDeals, filters);
@@ -79,7 +100,18 @@ export default function CoachingView({ filters }: { filters: Filters }) {
           <DataTable
             columns={[
               { key: "date", label: "Datum", bold: true },
-              { key: "lead", label: "Lead" },
+              {
+                key: "lead",
+                label: "Lead",
+                render: (v: string, row: CoachingCall) => (
+                  <button
+                    onClick={() => setSelectedCall(row)}
+                    className="text-left text-primary hover:underline font-medium"
+                  >
+                    {v}
+                  </button>
+                ),
+              },
               { key: "duration", label: "Dauer" },
               {
                 key: "outcome",
@@ -98,6 +130,16 @@ export default function CoachingView({ filters }: { filters: Filters }) {
                     }
                   />
                 ),
+              },
+              {
+                key: "closerScoring",
+                label: "Closer Scoring",
+                render: (v: string) => <span className="text-xs">{v}</span>,
+              },
+              {
+                key: "leadScoring",
+                label: "Lead Scoring",
+                render: (v: string) => <LeadScoringBadge value={v} />,
               },
             ]}
             rows={calls}
@@ -190,6 +232,71 @@ export default function CoachingView({ filters }: { filters: Filters }) {
           </Card>
         </div>
       </div>
+
+      {/* Transcript Sheet */}
+      <Sheet open={!!selectedCall} onOpenChange={(open) => { if (!open) setSelectedCall(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl p-0 flex flex-col">
+          {selectedCall && (
+            <>
+              <SheetHeader className="p-6 pb-0">
+                <SheetTitle className="text-base">{selectedCall.lead}</SheetTitle>
+                <SheetDescription>
+                  {selectedCall.date} · {selectedCall.duration} · {selectedCall.outcome}
+                </SheetDescription>
+                <div className="flex gap-3 mt-2">
+                  {selectedCall.leadScoring !== "–" && (
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <span className="text-muted-foreground">Lead:</span>
+                      <LeadScoringBadge value={selectedCall.leadScoring} />
+                    </div>
+                  )}
+                  {selectedCall.closerScoring !== "–" && (
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <span className="text-muted-foreground">Closer:</span>
+                      <span className="font-medium">{selectedCall.closerScoring}</span>
+                    </div>
+                  )}
+                </div>
+              </SheetHeader>
+
+              {selectedCall.transcript || selectedCall.aiSummary ? (
+                <Tabs defaultValue="summary" className="flex-1 flex flex-col min-h-0 px-6 pt-4">
+                  <TabsList className="w-full">
+                    <TabsTrigger value="summary" className="flex-1">Zusammenfassung</TabsTrigger>
+                    <TabsTrigger value="transcript" className="flex-1">Transcript</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="summary" className="flex-1 min-h-0">
+                    <ScrollArea className="h-[calc(100vh-220px)]">
+                      <div className="prose prose-sm dark:prose-invert max-w-none py-4 text-sm leading-relaxed whitespace-pre-wrap">
+                        {selectedCall.aiSummary || "Keine Zusammenfassung vorhanden."}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+                  <TabsContent value="transcript" className="flex-1 min-h-0">
+                    <ScrollArea className="h-[calc(100vh-220px)]">
+                      <div className="py-4 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">
+                        {selectedCall.transcript || "Kein Transcript vorhanden."}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+              ) : (
+                <div className="flex-1 flex items-center justify-center p-6">
+                  <div className="text-center">
+                    <div className="w-12 h-12 rounded-xl bg-muted mx-auto mb-3 flex items-center justify-center">
+                      <span className="text-muted-foreground text-xl">∅</span>
+                    </div>
+                    <p className="text-sm font-medium text-muted-foreground">Kein Transcript</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">
+                      Fuer dieses Gespraech wurde kein Transcript erfasst.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

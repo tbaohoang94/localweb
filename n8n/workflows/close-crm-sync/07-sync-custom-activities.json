@@ -362,6 +362,26 @@
         "jsonBody": "={\"status\": \"success\", \"records_synced\": {{ $json.count }}, \"error_message\": \"{{ $json.warning }}\", \"finished_at\": \"{{ $now.toISO() }}\"}",
         "options": {}
       }
+    },
+    {
+      "id": "trigger-transcripts-07",
+      "name": "Trigger Transcript Sync",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        3960,
+        520
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $env.WF_SYNC_TRANSCRIPTS_ID }}",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      }
     }
   ],
   "connections": {
@@ -542,6 +562,17 @@
         [
           {
             "node": "Sync Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Success": {
+      "main": [
+        [
+          {
+            "node": "Trigger Transcript Sync",
             "type": "main",
             "index": 0
           }
